@@ -1,0 +1,87 @@
+/***************************************************************************
+ *   Copyright (C) 2009 by Tobias Volk                                     *
+ *   mail@tobiasvolk.de                                                    *
+ *                                                                         *
+ *   This program is free software: you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation, either version 3 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
+
+
+// initialize crypto
+static void cryptoInit() {
+	int i;
+	for(i=0; i<IV_BUFSIZE; i++) g_iv[i] = 0;
+	EVP_MD_CTX_init(&g_mdctx);
+	EVP_CIPHER_CTX_init(&g_cipherctx);
+	if(!EVP_CipherInit_ex(&g_cipherctx, EVP_bf_cbc(), NULL, NULL, NULL, 0)) {
+		throwError("crypto setup failed!");
+	}
+}
+
+
+// shutdown crypto
+static void cryptoShutdown() {
+	EVP_CIPHER_CTX_cleanup(&g_cipherctx);
+	EVP_MD_CTX_cleanup(&g_mdctx);	
+}
+
+
+// calculate RIPEMD-160 hash
+static int calculateHash(char *hash, char *buf, int len) {
+	int hashlen;
+	if(!EVP_DigestInit_ex(&g_mdctx, EVP_ripemd160(), NULL)) return -1;
+	if(!EVP_DigestUpdate(&g_mdctx, (unsigned char *)buf, len)) return -1;
+	if(!EVP_DigestFinal_ex(&g_mdctx, (unsigned char *)hash, (unsigned int *)&hashlen)) return -1;
+	return hashlen;
+}
+
+
+// compare hashes
+static int compareHash(char *a, char *b) {
+	return (memcmp(a,b,DIGEST_SIZE) == 0);
+}
+
+
+// encrypt/decrypt buffer with blowfish
+static int blowfishCrypt(char *dest, char *src, int inputlen, u_int8_t *key, int keylen, u_int32_t iv, int enc) {
+	int destlen1,destlen2;
+	*(u_int32_t *)(g_iv) = iv;
+	if(!EVP_CIPHER_CTX_set_key_length(&g_cipherctx,keylen)) return -1;
+	if(!EVP_CipherInit_ex(&g_cipherctx,NULL,NULL,g_config.psk,g_iv,enc)) return -1;
+	if(!EVP_CipherUpdate(&g_cipherctx,(unsigned char *)dest,&destlen1,(unsigned char *)src,inputlen)) return -1;
+	if(!EVP_CipherFinal_ex(&g_cipherctx,(unsigned char *)&dest[destlen1],&destlen2)) return -1;
+	return (destlen1 + destlen2);
+}
+
+
+// encrypt/decrypt packet
+static int cryptPacket(char *dest, char *src, int inputlen, u_int8_t *key, int keylen, int enc) {
+	int iv,ret;
+	if(inputlen < PBYTE_CRYPT) return -1;
+	//iv = ntohl(*(u_int32_t *)(&src[PBYTE_IV]));
+	iv = *(u_int32_t *)&src[PBYTE_IV];
+	memcpy(dest,src,PBYTE_CRYPT);
+	ret = blowfishCrypt(&dest[PBYTE_CRYPT],&src[PBYTE_CRYPT],(inputlen - PBYTE_CRYPT),key,keylen,iv,enc);
+	if(ret > 0) {
+		return (PBYTE_CRYPT + ret);
+	}
+	else {
+		return -1;
+	}
+}
+
+
+// encrypt/decrypt packet with global preshared key
+static int pskCrypt(char *dest, char *src, int inputlen, int enc) {
+	return cryptPacket(dest,src,inputlen,g_config.psk,g_config.psklen,enc);
+}

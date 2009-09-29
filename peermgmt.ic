@@ -1,0 +1,421 @@
+/***************************************************************************
+ *   Copyright (C) 2008 by Tobias Volk                                     *
+ *   mail@tobiasvolk.de                                                    *
+ *                                                                         *
+ *   This program is free software: you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation, either version 3 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
+
+
+static void upgradePeerUpdateFwdlookup(u_int8_t peerid) {
+	u_int8_t fwdcount = g_peertable.fwdcount;
+	g_peertable.revlookup[peerid] = fwdcount;
+	g_peertable.fwdlookup[fwdcount] = peerid;
+	g_peertable.fwdcount++;
+	printf("active peer count: %d\n", g_peertable.fwdcount);
+}
+
+
+static void degradePeerUpdateFwdlookup(u_int8_t peerid) {
+	u_int8_t pos = g_peertable.revlookup[peerid];
+	u_int8_t fwdcount = --g_peertable.fwdcount;
+	u_int8_t maxpospeerid = g_peertable.fwdlookup[fwdcount];
+	g_peertable.fwdlookup[pos] = maxpospeerid;
+	g_peertable.revlookup[maxpospeerid] = pos;
+	printf("active peer count: %d\n", g_peertable.fwdcount);
+}
+
+
+static int degradePeer(u_int8_t peerid) {
+	int i;
+	u_int8_t r;
+	if(g_peertable.status[peerid] >= PEERSTATUS_CONFIRMED) {
+		// find and degrade all dependent peers
+		if(!isRelayAddress(&g_peertable.addr[peerid],NULL,NULL)) for(i=0; i<PEERCOUNT_HARDLIMIT; i++) if(g_peertable.status[i] != PEERSTATUS_INVALID && isRelayAddress(&g_peertable.addr[i],&r,NULL)) if(r==peerid) {
+			degradePeer(i);
+			g_peertable.status[i] = PEERSTATUS_INVALID; // dependent peers must be invalidated in all cases
+		}
+
+		// send signoff packet
+		encodeSignoffPacket(peerid);
+
+		// delete mac addresses
+		mactableRemovePeer(peerid);
+
+		// degrade peer		
+		if(isRelayAddress(&g_peertable.addr[peerid],NULL,NULL)) {
+			g_peertable.status[peerid] = PEERSTATUS_INVALID;
+		}
+		else {
+			g_peertable.status[peerid] = PEERSTATUS_UNCONFIRMED_HS0;
+			g_peertable.ownid[peerid] = PEERID_ANONYMOUS;
+		}
+		degradePeerUpdateFwdlookup(peerid);
+		return 1;	
+	}
+	else {
+		return 0;
+	}
+}
+
+
+static int getPeerStatus(u_int8_t peerid, int maytimeout) {
+	int lastseen;
+	if(peerid < PEERCOUNT_HARDLIMIT) {
+		lastseen = (getUptime() - g_peertable.lastseen[peerid]);
+		if(maytimeout) {
+			switch(g_peertable.status[peerid]) {
+				case PEERSTATUS_CONFIRMED:
+					// fallthrough
+				case PEERSTATUS_ACTIVE:
+					if(lastseen > TIMEOUT_INACTIVE) degradePeer(peerid);
+					break;
+				case PEERSTATUS_UNCONFIRMED_HS1:
+					if(lastseen > TIMEOUT_NEW) {
+						g_peertable.status[peerid] = PEERSTATUS_UNCONFIRMED_HS0;
+						g_peertable.ownid[peerid] = PEERID_ANONYMOUS;
+					}
+					break;
+				case PEERSTATUS_UNCONFIRMED_HS0:
+					if(lastseen > TIMEOUT_INVALID) g_peertable.status[peerid] = PEERSTATUS_INVALID;
+					break;
+			}
+		}
+		return g_peertable.status[peerid];
+	}
+	else {
+		return PEERSTATUS_INVALID;
+	}
+}
+
+
+static int findValidPeerAddress(struct s_peeraddr *addr) {
+	int i;
+	for(i=0; i<PEERCOUNT_HARDLIMIT; i++) {
+		if((getPeerStatus(i,0) != PEERSTATUS_INVALID) && (comparePeerAddrs(addr,&g_peertable.addr[i]))) return 1;
+	}
+	return 0;
+}
+
+
+static int findActivePeerAddress(struct s_peeraddr *addr) {
+	int i,pos;
+	for(i=0; i<g_peertable.fwdcount; i++) {
+		pos = g_peertable.fwdlookup[i];
+		if(comparePeerAddrs(addr,&g_peertable.addr[pos])) return 1;
+	}
+	return 0;
+}
+
+
+static int findActiveClientID(struct s_clientid *clientid, int *type, u_int8_t *retpeerid) {
+	int i,pos;
+	if(type != NULL) *type = CLIENTID_TYPE_UNKNOWN;
+	if(clientid == NULL) return 0;
+	if(compareClientIDs(clientid,&g_clientid)) {
+		if(type != NULL) *type = CLIENTID_TYPE_SELF;
+		return 1;
+	}
+	for(i=0; i<g_peertable.fwdcount; i++) {
+		pos = g_peertable.fwdlookup[i];
+		if(compareClientIDs(clientid,&g_peertable.clientid[pos])) {
+			if(type != NULL) {
+				*type = CLIENTID_TYPE_PEER;
+				*retpeerid = pos;
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
+
+static int checkUpdateAddress(u_int8_t peerid, struct s_peeraddr *addr) {
+	return ( 
+			(getPeerStatus(peerid,0) >= PEERSTATUS_CONFIRMED) 
+		&&	(!comparePeerAddrs(&g_peertable.addr[peerid],addr))
+		&&	((isRelayAddress(&g_peertable.addr[peerid],NULL,NULL)) || (!isRelayAddress(addr,NULL,NULL)))
+		); // dont accept address that downgrades direct connection to indirect connection
+}
+
+
+static int checkUpgradeAddress(u_int8_t peerid, struct s_peeraddr *addr) {
+	return (
+			(getPeerStatus(peerid,0) >= PEERSTATUS_CONFIRMED)
+		&&	((isRelayAddress(&g_peertable.addr[peerid],NULL,NULL)) && (!isRelayAddress(addr,NULL,NULL)))
+		); // accept only if this is an upgrade from indirect to direct connection
+}
+
+
+static void updateAddress(u_int8_t peerid, struct s_peeraddr *addr) {
+	if(checkUpdateAddress(peerid,addr)) { 
+		#if DEBUG_LEVEL > 0
+		char debugstr1[128];
+		char debugstr2[128];
+		byteArrayToString(debugstr1,g_peertable.addr[peerid].addr,PEERADDR_LENGTH);
+		byteArrayToString(debugstr2,addr->addr,PEERADDR_LENGTH);
+		printf("changed peeraddr of #0x%02X: %s -> %s\n",peerid,debugstr1,debugstr2);
+		#endif
+
+		// update address
+		g_peertable.addr[peerid] = *addr;
+	}
+}
+
+
+static int upgradePeer(u_int8_t peerid, struct s_clientid *clientid, u_int32_t *ownseq, u_int8_t *ownid) {
+	int duptype;
+	u_int8_t duppeerid;
+	switch(getPeerStatus(peerid,0)) {
+		case PEERSTATUS_UNCONFIRMED_HS0:
+			if(clientid == NULL) {
+				g_peertable.status[peerid] = PEERSTATUS_INVALID;
+				return 0;
+			}
+			else if(findActiveClientID(clientid,&duptype,&duppeerid)) {
+				g_peertable.status[peerid] = PEERSTATUS_INVALID;
+				if(duptype == CLIENTID_TYPE_PEER && checkUpgradeAddress(duppeerid, &g_peertable.addr[peerid])) encodePingPacketAltDest(duppeerid,&g_peertable.addr[peerid]);
+				return 0;
+			}
+			else {
+				g_peertable.ownseq[peerid] = *ownseq;
+				g_peertable.ownid[peerid] = *ownid;
+				g_peertable.clientid[peerid] = *clientid;
+				g_peertable.status[peerid] = PEERSTATUS_CONFIRMED;
+				upgradePeerUpdateFwdlookup(peerid);
+
+				// in a later version, the session key will be generated here
+
+				return 1;
+			}
+		case PEERSTATUS_UNCONFIRMED_HS1:
+			if(findActiveClientID(&g_peertable.clientid[peerid],&duptype,&duppeerid)) {
+				g_peertable.status[peerid] = PEERSTATUS_INVALID;
+				if(duptype == CLIENTID_TYPE_PEER && checkUpgradeAddress(duppeerid, &g_peertable.addr[peerid])) encodePingPacketAltDest(duppeerid,&g_peertable.addr[peerid]);
+				return 0;
+			}
+			else {
+				g_peertable.status[peerid] = PEERSTATUS_ACTIVE;
+				upgradePeerUpdateFwdlookup(peerid);
+				return 1;
+			}
+		default: return 0;
+	}
+}
+
+
+static int isHS1orActivePeer(u_int8_t peerid, int maytimeout) {
+	int status = getPeerStatus(peerid,maytimeout);
+	if(status >= PEERSTATUS_CONFIRMED || status == PEERSTATUS_UNCONFIRMED_HS1) {
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+
+static int findInactivePeerPos(u_int8_t *newpeerid) {
+	u_int8_t newclock = g_peertable.clockn;
+	u_int8_t oldclock = newclock;
+	do {
+		newclock = ((newclock+1) % PEERCOUNT_HARDLIMIT);
+		if(newclock == oldclock) return 0;
+	}
+	while(isHS1orActivePeer(newclock,1));
+	*newpeerid = newclock;
+	g_peertable.clockn = newclock;
+	return 1;
+}
+
+
+static void replacePeerSeq(u_int8_t peerid) {
+	g_peertable.remoteseq[peerid] = getRandomNumber(MAX_SEQ);
+	g_peertable.seqwindow[peerid] = (1 << 0);
+}
+
+
+static void doAllocNewPeer(u_int8_t peerid, u_int8_t *retpeerid, struct s_peeraddr *addr, struct s_clientid *clientid, u_int32_t *ownseq, u_int8_t *ownid) {
+	if(clientid == NULL) {
+		g_peertable.status[peerid] = PEERSTATUS_UNCONFIRMED_HS0;
+		g_peertable.ownid[peerid] = PEERID_ANONYMOUS;
+	}
+	else {
+		g_peertable.status[peerid] = PEERSTATUS_UNCONFIRMED_HS1;
+		g_peertable.ownseq[peerid] = *ownseq;
+		g_peertable.ownid[peerid] = *ownid;
+		g_peertable.clientid[peerid] = *clientid;
+	}
+
+	// accept new peer
+	replacePeerSeq(peerid);
+	g_peertable.lastseen[peerid] = getUptime();
+	g_peertable.lastping[peerid] = getUptime();
+	g_peertable.addr[peerid] = *addr;
+	if(retpeerid != NULL) *retpeerid = peerid;
+}
+
+
+static int allocNewPeer(u_int8_t *retpeerid, struct s_peeraddr *addr, struct s_clientid *clientid, u_int32_t *ownseq, u_int8_t *ownid) {
+	u_int8_t peerid;
+	u_int8_t relayaddrdependson = 0;
+	u_int8_t duppeerid;
+	int duptype,isrelayaddr;
+
+	if(findActivePeerAddress(addr)) {
+		// avoid duplicate connections
+		return 0;
+	}
+
+	isrelayaddr = isRelayAddress(addr,&relayaddrdependson,NULL);
+
+	if(findActiveClientID(clientid,&duptype,&duppeerid)) {
+		if(duptype == CLIENTID_TYPE_PEER && !isrelayaddr) {
+			if(!isRelayAddress(&g_peertable.addr[duppeerid],NULL,NULL)) {
+				// avoid duplicate connections
+				return 0;
+			}
+			// allow replacement of relayed connection with direct connection
+		}
+		else {
+			// avoid duplicate connections
+			return 0;
+		}
+	}
+
+	if(isrelayaddr) {
+		if(g_peertable.status[relayaddrdependson] < PEERSTATUS_ACTIVE || isRelayAddress(&g_peertable.addr[relayaddrdependson],NULL,NULL)) {
+			// dont allow dependency on non active or relayed peer
+			return 0;
+		}
+	}
+
+	if(!findInactivePeerPos(&peerid)) {
+		// all slots are active
+		return 0;
+	}
+
+	// accept new peer
+	doAllocNewPeer(peerid,retpeerid,addr,clientid,ownseq,ownid);
+	return 1;
+}
+
+
+static int connectNewPeer(u_int8_t *retpeerid, struct s_peeraddr *addr, int sendhello, int tryrelay, int relayid, int relaypeerid) {
+	u_int8_t peerid;
+	struct s_peeraddr indirectaddr;
+	if(g_peertable.fwdcount < PEERCOUNT_SOFTLIMIT) {
+		if(findValidPeerAddress(addr)) {
+			// avoid duplicate connections
+			return 0;
+		}
+		else {
+			if(allocNewPeer(&peerid,addr,NULL,NULL,NULL)) {
+				if(sendhello) encodeHello0Packet(peerid);
+				if(retpeerid != NULL) *retpeerid = peerid;
+				if(g_config.enableindirect && tryrelay && !isRelayAddress(addr,NULL,NULL)) {
+					// try to open indirect connection
+					genRelayAddress(&indirectaddr,relayid,relaypeerid);
+					connectNewPeer(NULL,&indirectaddr,0,0,0,0);
+				}
+				return 1;
+			}
+			else {
+				return 0;
+			}
+		}
+	}
+	else {
+		return 0;
+	}
+}
+
+
+static void connectInitpeers() {
+	int i,j,k;
+	char *hostname = NULL;
+	char *port = NULL;
+	struct s_peeraddr addr;
+	i=0;j=0;k=0;
+	for(;;) {
+		j = *(u_int8_t *)(&g_config.initpeers[i]);
+		if((j > 0) && (i+j+1 < INITPEER_STORAGE)) {
+			if(k) {
+				port = &g_config.initpeers[i+1];
+				printf("resolving %s:%s...\n",hostname,port);
+				if(setPeerAddrByName(&addr,hostname,port)) {
+					printf("done.\n");
+					connectNewPeer(NULL,&addr,1,0,0,0);
+				}
+				else {
+					printf("failed.\n");
+				}
+				k=0;
+			}
+			else {
+				hostname = &g_config.initpeers[i+1];
+				k=1;
+			}
+			i=i+j+1;
+		}
+		else {
+			break;
+		}
+	}
+}
+
+
+static int pingPeer(u_int8_t peerid) {
+	switch(getPeerStatus(peerid,1)) {
+		case PEERSTATUS_UNCONFIRMED_HS0:
+			if((getUptime() - g_peertable.lastping[peerid]) > PING_INTERVAL_HS0) {
+				replacePeerSeq(peerid);
+				encodeHello0Packet(peerid);
+				g_peertable.lastping[peerid] = getUptime();
+			}
+			return 1;
+		case PEERSTATUS_UNCONFIRMED_HS1:
+			if((getUptime() - g_peertable.lastping[peerid]) > PING_INTERVAL_HS1) {
+				encodeHello1Packet(peerid);
+				g_peertable.lastping[peerid] = getUptime();
+			}
+			return 1;
+		case PEERSTATUS_CONFIRMED:
+			if((getUptime() - g_peertable.lastping[peerid]) > PING_INTERVAL_CONFIRMED) {
+				encodeHello2Packet(peerid);
+				g_peertable.lastping[peerid] = getUptime();
+			}
+			return 1;
+		case PEERSTATUS_ACTIVE:
+			if((getUptime() - g_peertable.lastping[peerid]) > PING_INTERVAL_ACTIVE) {
+				if(isRelayAddress(&g_peertable.addr[peerid],NULL,NULL)) {
+					encodePingPacket(peerid);
+				}
+				else {
+					encodePeerInfoPacket(peerid);
+				}
+				g_peertable.lastping[peerid] = getUptime();
+			}
+			return 1;
+		default:
+			return 0;
+	}
+}
+
+static void signoffAllRemotePeers() {
+	u_int8_t pos;
+	while(g_peertable.fwdcount > 0) {
+		pos = g_peertable.fwdlookup[0];
+		degradePeer(pos);
+	}	
+}

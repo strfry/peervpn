@@ -1,0 +1,97 @@
+/***************************************************************************
+ *   Copyright (C) 2008 by Tobias Volk                                     *
+ *   mail@tobiasvolk.de                                                    *
+ *                                                                         *
+ *   This program is free software: you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation, either version 3 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
+
+
+// print table of MAC addresses
+static void printMacTable() {
+	int i;
+	char macstring[MACTREE_KEYSIZE*2+1];
+	printf("MAC address overview:\n");
+	for(i=0; i<g_mactree.nodecount; i++) {
+		byteArrayToString(macstring,g_mactree.key[i],MACTREE_KEYSIZE);
+		printf(" #%04d: mac=%s, peerid=0x%02X\n", i+1, macstring, g_mactree.value[i][0]);
+	}	
+}
+
+
+// print table of active peers
+static void printActivePeerTable() {
+	int i,pos;
+	char ipstring[PEERADDR_LENGTH*2+1];
+	char clientstring[CLIENTID_LENGTH*2+1];
+	printf("List of active peers:\n");
+	for(i=0; i<g_peertable.fwdcount; i++) {
+		pos = g_peertable.fwdlookup[i];
+		byteArrayToString(ipstring,g_peertable.addr[pos].addr,PEERADDR_LENGTH);
+		byteArrayToString(clientstring,g_peertable.clientid[pos].id,CLIENTID_LENGTH);
+		printf(" #%03d: peerid=0x%02X, clientid=%s, addr=%s, lastseen=%03d\n", i+1, pos, clientstring, ipstring, getUptime() - g_peertable.lastseen[pos]);
+	}
+}
+
+
+// parse command
+static void parseCMD(char *cmd, int cmdlen) {
+	if(cmd[0] == 'A' || cmd[0] == 'a') {
+		// ACTIVEPEERTABLE
+		printActivePeerTable();
+	}
+	if(cmd[0] == 'I' || cmd[0] == 'i') {
+		// INSERTPEER
+		char pa[1024];
+		char pb[1024];
+		char pc[1024];
+		struct s_peeraddr paddr;
+		sscanf(cmd,"%s %s %s",pa,pb,pc);
+		if(setPeerAddrByName(&paddr,pb,pc)) {
+			if(connectNewPeer(NULL,&paddr,1,0,0,0)) {
+				printf("new connection created.\n");
+			}
+			else {
+				printf("could not create new connection.\n");
+			}
+		}
+		else {
+			printf("could not get peer address.\n");
+		}
+		
+	}
+	if(cmd[0] == 'M' || cmd[0] == 'm') {
+		#if DEBUG_LEVEL > 0
+		if(cmd[1] == 'E' || cmd[1] == 'e') {
+			// MEMORY
+			printMemoryOverview();
+		}
+		#endif
+		if(cmd[1] == 'A' || cmd[1] == 'a') {
+			// MACTABLE
+			printMacTable();
+		}
+	}
+	if(cmd[0] == 'P' || cmd[0] == 'p') {
+		// PEERTABLE
+		printActivePeerTable();
+	}
+}
+
+
+// decode console command
+static void decodeConsole() {
+	char cmd[COMMAND_BUFSIZE] = {0,0};
+	int len = read(g_fd[FDID_CONSOLE].fd, cmd, COMMAND_BUFSIZE);
+	if(len > 0) parseCMD(cmd,len);
+}

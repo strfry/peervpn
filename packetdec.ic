@@ -1,0 +1,358 @@
+/***************************************************************************
+ *   Copyright (C) 2008 by Tobias Volk                                     *
+ *   mail@tobiasvolk.de                                                    *
+ *                                                                         *
+ *   This program is free software: you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation, either version 3 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
+
+
+// declarations
+static void decodePacketUnchecked(char *pbuf, struct s_peeraddr *peeraddr, int len);
+
+
+// decode hello0 packet
+static void decodeHello0Packet(char *pbuf, struct s_peeraddr *addr, u_int8_t pllen) {
+	if(pllen == NETID_LENGTH+CLIENTID_LENGTH+5) {
+		struct s_netid *netid = (struct s_netid *)&pbuf[PBYTE_PAYLOAD];
+		if(compareNetIDs(netid,&g_netid)) { // only accept packets with correct network id
+			struct s_clientid *clientid = (struct s_clientid *)&pbuf[PBYTE_PAYLOAD+NETID_LENGTH];
+			u_int32_t ownseq = ntohl(*(u_int32_t *)(&pbuf[PBYTE_PAYLOAD+NETID_LENGTH+CLIENTID_LENGTH]));
+			u_int8_t ownid = *(u_int8_t *)(&pbuf[PBYTE_PAYLOAD+NETID_LENGTH+CLIENTID_LENGTH+4]);
+			u_int8_t newpeerid;
+			if(allocNewPeer(&newpeerid,addr,clientid,&ownseq,&ownid)) {
+				encodeHello1Packet(newpeerid);
+			}
+		}
+	}
+}
+
+
+// decode hello1 packet
+static void decodeHello1Packet(char *pbuf, u_int8_t peerid, u_int16_t pllen) {
+	if(pllen == NETID_LENGTH+CLIENTID_LENGTH+5 && getPeerStatus(peerid,0) == PEERSTATUS_UNCONFIRMED_HS0) {
+		struct s_netid *netid = (struct s_netid *)&pbuf[PBYTE_PAYLOAD];
+		if(compareNetIDs(netid,&g_netid)) { // only accept packets with correct network id
+			struct s_clientid *clientid = (struct s_clientid *)&pbuf[PBYTE_PAYLOAD+NETID_LENGTH];
+			u_int32_t ownseq = ntohl(*(u_int32_t *)(&pbuf[PBYTE_PAYLOAD+NETID_LENGTH+CLIENTID_LENGTH]));
+			u_int8_t ownid = *(u_int8_t *)(&pbuf[PBYTE_PAYLOAD+NETID_LENGTH+CLIENTID_LENGTH+4]);
+			if(upgradePeer(peerid,clientid,&ownseq,&ownid)) {
+				encodeHello2Packet(peerid);
+			}
+		}
+	}
+}
+
+
+// decode hello2 packet
+static void decodeHello2Packet(char *pbuf, u_int8_t peerid, u_int16_t pllen) {
+	if(upgradePeer(peerid,NULL,NULL,NULL)) {
+		encodePingPacket(peerid);
+	}
+}
+
+
+// decode peerinfo packet
+static void decodePeerInfoPacket(char *pbuf, u_int8_t peerid, u_int16_t pllen) {
+	int bufpos = PBYTE_PAYLOAD;
+	int newbufpos;
+	int limit = PBYTE_PAYLOAD + pllen;
+	int maxpos = PBYTE_PAYLOAD + (PEERINFO_MAXDATA * (PEERADDR_LENGTH + 1));
+	struct s_peeraddr *addr;
+	u_int8_t addrid;
+	u_int8_t ownid = g_peertable.ownid[peerid];
+	if(limit > maxpos) limit = maxpos;
+	for(;;) {
+		newbufpos = bufpos + PEERADDR_LENGTH + 1;
+		if(newbufpos > limit) break;
+		addr = (struct s_peeraddr *)&pbuf[bufpos];
+		addrid = *(u_int8_t *)&pbuf[bufpos+PEERADDR_LENGTH];
+		bufpos = newbufpos;
+
+		if(addrid == ownid) {
+			// addr contains our own ip address here
+		}
+		else if(isRelayAddress(addr,NULL,NULL)) {
+			// don't accept relay addresses
+		}
+		else {
+			// try to open connection
+			connectNewPeer(NULL,addr,0,1,peerid,addrid);
+		}
+	}
+}
+
+
+// decode signoff packet
+static void decodeSignoffPacket(char *pbuf, u_int8_t peerid, u_int16_t pllen) {
+	degradePeer(peerid);
+}
+
+
+// decode relayin packet
+static void decodeRelayInPacket(char *pbuf, u_int8_t peerid, u_int16_t pllen) {
+	if(g_config.enablerelay && pllen >= 1) {
+		u_int16_t rpllen = pllen-1;
+		u_int8_t dpeerid = *(&pbuf[PBYTE_PAYLOAD+rpllen]);
+		if(getPeerStatus(dpeerid,0) >= PEERSTATUS_CONFIRMED) {
+			// forward packet
+			encodeRelayOutPacket(dpeerid,peerid,pbuf,rpllen);
+		}
+	}
+}
+
+
+// decode relayout packet
+static void decodeRelayOutPacket(char *pbuf, u_int8_t peerid, u_int16_t pllen) {
+	if(g_config.enableindirect && pllen >= 1) {
+		u_int16_t rpllen = pllen-1;
+		u_int8_t rpeerid = *(&pbuf[PBYTE_PAYLOAD+rpllen]);
+		struct s_peeraddr rpeeraddr;
+
+		// generate virtual peer address
+		genRelayAddress(&rpeeraddr,peerid,rpeerid);
+
+		// insert payload into packet decoder
+		decodePacketUnchecked(&pbuf[PBYTE_PAYLOAD],&rpeeraddr,rpllen);
+	}
+}
+
+
+// decode ethernet packet
+static void decodeEthernetPacket(char *pbuf, u_int8_t peerid, u_int16_t pllen) {
+	u_int8_t *mac;
+	if(g_config.enableeth && pllen > (MACTREE_KEYSIZE*2)) {
+		mac = (u_int8_t *)&pbuf[PBYTE_PAYLOAD + MACTREE_KEYSIZE];
+		mactableAddMAC(peerid,mac);
+		if(!((write(g_fd[FDID_TAP].fd,&pbuf[PBYTE_PAYLOAD],pllen)) > 0)) {
+			logWarning("could not write to tap device!");
+		}
+		
+	}
+}
+
+
+// decode anonymous packet
+static void decodePacketAnonymous(char *pbuf, struct s_peeraddr *peeraddr, u_int16_t pllen, u_int8_t ptype) {
+	switch(ptype) {
+		case PTYPE_HELLO0: decodeHello0Packet(pbuf,peeraddr,pllen); break;
+		#if DEBUG_LEVEL > 0
+		default: printf("unknown anonymous packet type detected!\n"); break;
+		#endif
+	}
+}
+
+
+// decode validated packet for active connections
+static void decodePacketValidatedActive(char *pbuf, u_int8_t peerid, u_int16_t pllen, u_int8_t ptype) {
+	switch(ptype) {
+		case PTYPE_PING: break;
+		case PTYPE_ETHERNET: decodeEthernetPacket(pbuf,peerid,pllen); break;
+		case PTYPE_PEERINFO: decodePeerInfoPacket(pbuf,peerid,pllen); break;
+		case PTYPE_SIGNOFF: decodeSignoffPacket(pbuf,peerid,pllen); break;
+		case PTYPE_RELAYIN: decodeRelayInPacket(pbuf,peerid,pllen); break;
+		case PTYPE_RELAYOUT: decodeRelayOutPacket(pbuf,peerid,pllen); break;
+		#if DEBUG_LEVEL > 0
+		default: printf("unknown packet type detected for state active!\n"); break;
+		#endif
+	}
+}
+
+
+// decode validated packet for unconfirmed hs0 connections
+static void decodePacketValidatedUnconfirmedHS0(char *pbuf, u_int8_t peerid, u_int16_t pllen, u_int8_t ptype) {
+	switch(ptype) {
+		case PTYPE_HELLO1: decodeHello1Packet(pbuf,peerid,pllen); break;
+		#if DEBUG_LEVEL > 0
+		default: printf("unknown packet type detected for state HS0!\n"); break;
+		#endif
+	}
+}
+
+
+// decode validated packet for unconfirmed hs1 connections
+static void decodePacketValidatedUnconfirmedHS1(char *pbuf, u_int8_t peerid, u_int16_t pllen, u_int8_t ptype) {
+	switch(ptype) {
+		case PTYPE_HELLO2: decodeHello2Packet(pbuf,peerid,pllen); break;
+		#if DEBUG_LEVEL > 0
+		default: printf("unknown packet type detected for state HS1!\n"); break;
+		#endif
+	}
+}
+
+
+// decode validated packet
+static void decodePacketValidated(char *pbuf, u_int8_t peerid, u_int16_t pllen, u_int8_t ptype, u_int8_t peerstatus) {
+	#if DEBUG_LEVEL > 0
+	// print debug info
+	printf("got packet: uptime=%d, numpeers=%d, peerid=0x%02X, ptype=%d\n", getUptime(), g_peertable.fwdcount, peerid, ptype);
+	#endif
+
+	if(peerstatus >= PEERSTATUS_CONFIRMED) {
+		if(peerstatus == PEERSTATUS_CONFIRMED) {
+			g_peertable.status[peerid] = PEERSTATUS_ACTIVE;
+		}
+
+		// process packet for active connections
+		decodePacketValidatedActive(pbuf,peerid,pllen,ptype);
+	}
+	else {
+		// process packet for unconfirmed connections
+		switch(peerstatus) {
+			case PEERSTATUS_UNCONFIRMED_HS0: decodePacketValidatedUnconfirmedHS0(pbuf,peerid,pllen,ptype); break;
+			case PEERSTATUS_UNCONFIRMED_HS1: decodePacketValidatedUnconfirmedHS1(pbuf,peerid,pllen,ptype); break;
+		}
+	}
+}
+
+
+// validate sequence number
+static int validateSeq(u_int8_t peerid, u_int32_t seq) {
+	int32_t seqdiff;
+	u_int32_t mask;
+	seqdiff = seq - g_peertable.remoteseq[peerid];
+	if(seqdiff >= 0 && seqdiff < g_config.windowsize) {
+		// move the window
+		while(seqdiff > 16) {
+			seqdiff = seqdiff - 8;
+			g_peertable.seqwindow[peerid] = (g_peertable.seqwindow[peerid] >> 8);
+			g_peertable.remoteseq[peerid] = (g_peertable.remoteseq[peerid] + 8);
+		}
+
+		// check for duplicates
+		mask = (1 << seqdiff);
+		if((g_peertable.seqwindow[peerid] & mask) == 0) {
+			g_peertable.seqwindow[peerid] = g_peertable.seqwindow[peerid] | mask;
+
+			// sequence number is ok
+			return 1;
+		}
+		else {
+			// duplicate sequence number detected
+			return 0;
+		}
+	}
+	else {
+		// sequence number is out of window
+		return 0;
+	}
+}
+
+
+// decode unchecked packet
+static void decodePacketUnchecked(char *pbuf, struct s_peeraddr *peeraddr, int len) {
+	char digest[DIGEST_BUFSIZE];
+	u_int8_t peerstatus;
+	u_int32_t seq;
+	u_int16_t pllen;
+	u_int8_t peerid,ptype;
+
+	if(len >= PBYTE_CRYPT) {
+		peerid = *(u_int8_t *)(&pbuf[PBYTE_PEERID]);
+		peerstatus = getPeerStatus(peerid,0);
+	
+		if(len >= PBYTE_PAYLOAD) { // only accept packets that are addressed to a valid peer and have a complete header
+			pllen = ntohs(*(u_int16_t *)(&pbuf[PBYTE_PLLENGTH]));
+
+			if(pllen <= (len - PBYTE_PAYLOAD)) { // only accept packets with correct length info
+				if(calculateHash(digest, &pbuf[PBYTE_HDR], (HDR_SIZE+pllen)) >= DIGEST_SIZE) { // only accept packets with successful hash calculation
+					if(compareHash(digest, &pbuf[PBYTE_MD])) { // only accept packets with correct hash value
+						ptype = *(u_int8_t *)(&pbuf[PBYTE_PTYPE]);
+						seq = ntohl(*(u_int32_t *)(&pbuf[PBYTE_SEQ]));
+
+						if(peerid == PEERID_ANONYMOUS) {
+							// handle anonymous packets here
+							decodePacketAnonymous(pbuf,peeraddr,pllen,ptype);
+						}
+						else {
+							// handle packets that have a peerid here
+							if(peerstatus != PEERSTATUS_INVALID) { // check for valid peerid
+								if(validateSeq(peerid,seq)) { // check for valid sequence number
+									// update peer info
+									g_peertable.lastseen[peerid] = getUptime();
+									updateAddress(peerid,peeraddr);
+
+									// further decode the now validated packet
+									decodePacketValidated(pbuf,peerid,pllen,ptype,peerstatus);
+								}
+								#if DEBUG_LEVEL > 0
+								else {
+									printf("invalid packet dropped (invalid sequence number): uptime=%d, numpeers=%d, peerid=%d, ptype=%d\n", getUptime(), g_peertable.fwdcount, peerid, ptype);
+								}
+								#endif
+							}
+							#if DEBUG_LEVEL > 0
+							else {
+								printf("invalid packet dropped (invalid peer): uptime=%d, numpeers=%d, peerid=%d, ptype=%d\n", getUptime(), g_peertable.fwdcount, peerid, ptype);
+							}
+							#endif
+						}
+					}
+					#if DEBUG_LEVEL > 0
+					else {
+						printf("invalid packet dropped (invalid hash value)! uptime=%d\n", getUptime());
+					}
+					#endif
+				}
+				#if DEBUG_LEVEL > 0
+				else {
+					printf("invalid packet dropped (hash calculation failed)! uptime=%d\n", getUptime());
+				}
+				#endif
+			}
+			#if DEBUG_LEVEL > 0
+			else {
+				printf("invalid packet dropped (invalid length value)! uptime=%d\n", getUptime());
+			}
+			#endif
+		}
+		#if DEBUG_LEVEL > 0
+		else {
+			printf("invalid packet dropped (incomplete header)! uptime=%d\n", getUptime());
+		}
+		#endif
+	}
+}
+
+
+// fetch new packet
+static void decodePacket() {
+	struct s_peeraddr peeraddr;
+	char cryptpbuf[PACKETCRYPT_BUFSIZE];
+	char clearpbuf[PACKET_BUFSIZE];
+	char *activebuf;
+
+	// receive packet
+	int clen = recvPacket(cryptpbuf,PACKET_BUFSIZE,&peeraddr);
+	int len;
+
+	if(clen > 0) {
+		if(g_config.psklen > 0) {
+			// decrypt packet
+			len = pskCrypt(clearpbuf,cryptpbuf,clen,0);
+			activebuf = clearpbuf;
+		}
+		else {
+			len = clen;
+			activebuf = cryptpbuf;
+		}
+	
+		// analyze packet
+		if(len > 0 && len < PACKET_BUFSIZE) decodePacketUnchecked(activebuf,&peeraddr,len);
+		#if DEBUG_LEVEL > 0
+		else {
+			printf("invalid packet dropped (decryption failed)! uptime=%d\n", getUptime());
+		}
+		#endif
+	}
+}

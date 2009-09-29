@@ -1,0 +1,453 @@
+/***************************************************************************
+ *   Copyright (C) 2008 by Tobias Volk                                     *
+ *   mail@tobiasvolk.de                                                    *
+ *                                                                         *
+ *   This program is free software: you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation, either version 3 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
+
+
+// avl tree code starts here
+static void mactreeSwapData(struct s_mactree *tree, u_int16_t a, u_int16_t b) {
+	u_int8_t swapkey[MACTREE_KEYSIZE];
+	u_int8_t swapvalue[MACTREE_KEYSIZE];
+	memcpy(&swapkey,tree->key[a],MACTREE_KEYSIZE);
+	memcpy(&swapvalue,tree->value[a],MACTREE_VALUESIZE);
+	memcpy(tree->key[a],tree->key[b],MACTREE_KEYSIZE);
+	memcpy(tree->value[a],tree->value[b],MACTREE_VALUESIZE);
+	memcpy(tree->key[b],&swapkey,MACTREE_KEYSIZE);
+	memcpy(tree->value[b],&swapvalue,MACTREE_VALUESIZE);
+}
+static void mactreeCopyData(struct s_mactree *tree, u_int16_t dest, u_int16_t src) {
+	memcpy(tree->key[dest],tree->key[src],MACTREE_KEYSIZE);
+	memcpy(tree->value[dest],tree->value[src],MACTREE_VALUESIZE);
+}
+static void mactreeCopyNode(struct s_mactree *tree, u_int16_t dest, u_int16_t src) {
+	mactreeCopyData(tree,dest,src);
+	tree->left[dest] = tree->left[src];
+	tree->right[dest] = tree->right[src];
+	tree->height[dest] = tree->height[src];
+}
+static void mactreeRecalculateHeight(struct s_mactree *tree, int nodeid) {
+	int t;
+	int l = 0;
+	int r = 0;
+	if((t = (tree->left[nodeid]))) l = tree->height[t] + 1;
+	if((t = (tree->right[nodeid]))) r = tree->height[t] + 1;
+	if(l > r) {
+		tree->height[nodeid] = l;
+	}
+	else {
+		tree->height[nodeid] = r;
+	}
+}
+static int mactreeCalculateBalance(struct s_mactree *tree, int nodeid) {
+	int t;
+	int l = 0;
+	int r = 0;
+	if((t = (tree->left[nodeid]))) l = tree->height[t] + 1;
+	if((t = (tree->right[nodeid]))) r = tree->height[t] + 1;
+	return (l-r);
+}
+static void mactreeRotateLL(struct s_mactree *tree, int nodeid) {
+	int w = nodeid;
+	int v = tree->left[w];
+	int b1 = tree->left[v];
+	int b2 = tree->right[v];
+	int b3 = tree->right[w];
+	mactreeSwapData(tree, w, v);
+	tree->left[v] = b2;
+	tree->right[v] = b3;
+	tree->left[w] = b1;
+	tree->right[w] = v;
+	mactreeRecalculateHeight(tree,v);
+	mactreeRecalculateHeight(tree,w);
+}
+static void mactreeRotateRR(struct s_mactree *tree, int nodeid) {
+	int w = nodeid;
+	int x = tree->right[w];
+	int b1 = tree->right[x];
+	int b2 = tree->left[x];
+	int b3 = tree->left[w];
+	mactreeSwapData(tree, w, x);
+	tree->left[x] = b3;
+	tree->right[x] = b2;
+	tree->left[w] = x;
+	tree->right[w] = b1;
+	mactreeRecalculateHeight(tree,x);
+	mactreeRecalculateHeight(tree,w);
+}
+static void mactreeRotateLR(struct s_mactree *tree, int nodeid) {
+	mactreeRotateRR(tree,tree->left[nodeid]);
+	mactreeRotateLL(tree,nodeid);
+}
+static void mactreeRotateRL(struct s_mactree *tree, int nodeid) {
+	mactreeRotateLL(tree,tree->right[nodeid]);
+	mactreeRotateRR(tree,nodeid);
+}
+static void mactreeRebalance(struct s_mactree *tree, int nodeid) {
+	mactreeRecalculateHeight(tree,nodeid);
+	if(mactreeCalculateBalance(tree,nodeid) > 1) {
+		if(mactreeCalculateBalance(tree,tree->left[nodeid]) < 0) {
+			mactreeRotateLR(tree,nodeid);
+		}
+		else {
+			mactreeRotateLL(tree,nodeid);
+		}
+	}
+	else if(mactreeCalculateBalance(tree,nodeid) < -1) {
+		if(mactreeCalculateBalance(tree,tree->right[nodeid]) > 0) {
+			mactreeRotateRL(tree,nodeid);
+		}
+		else {
+			mactreeRotateRR(tree,nodeid);
+		}
+	}
+}
+static int mactreeCompareKey(u_int8_t *a, u_int8_t *b) {
+	return memcmp(a,b,MACTREE_KEYSIZE);
+}
+static int mactreeCompareValue(u_int8_t *a, u_int8_t *b) {
+	return memcmp(a,b,MACTREE_VALUESIZE);
+}
+static int mactreeInsertHere(struct s_mactree *tree, u_int8_t *key, u_int8_t *value, int parentid, int parentright) {
+	int nodeid = tree->nodecount++;
+	memcpy(tree->key[nodeid],key,MACTREE_KEYSIZE);
+	memcpy(tree->value[nodeid],value,MACTREE_VALUESIZE);
+	tree->left[nodeid] = 0;
+	tree->right[nodeid] = 0;
+	tree->height[nodeid] = 0;
+	if(parentright) {
+		tree->right[parentid] = nodeid;
+	}
+	else {
+		tree->left[parentid] = nodeid;
+	}
+	return nodeid;
+}
+static int mactreeInsertRecursive(struct s_mactree *tree, u_int8_t *key, u_int8_t *value, int nodeid, int parentid) {
+	int newid;
+	int cmpvalue = mactreeCompareKey(tree->key[nodeid],key);
+	if(cmpvalue > 0) {
+		// insert into left subtree
+		if(tree->left[nodeid] > 0) {
+			newid = mactreeInsertRecursive(tree,key,value,tree->left[nodeid],nodeid);
+		}
+		else {
+			newid = mactreeInsertHere(tree,key,value,nodeid,0);
+		}
+		mactreeRecalculateHeight(tree,nodeid);
+		if(mactreeCalculateBalance(tree,nodeid) > 1) {
+			if(mactreeCalculateBalance(tree,tree->left[nodeid]) < 0) {
+				mactreeRotateLR(tree,nodeid);
+			}
+			else {
+				mactreeRotateLL(tree,nodeid);
+			}
+		}
+		return newid;
+	}
+	else if(cmpvalue < 0) {
+		// insert into right subtree
+		if(tree->right[nodeid] > 0) {
+			newid = mactreeInsertRecursive(tree,key,value,tree->right[nodeid],nodeid);
+		}
+		else {
+			newid = mactreeInsertHere(tree,key,value,nodeid,1);
+		}
+		mactreeRecalculateHeight(tree,nodeid);
+		if(mactreeCalculateBalance(tree,nodeid) < -1) {
+			if(mactreeCalculateBalance(tree,tree->right[nodeid]) > 0) {
+				mactreeRotateRL(tree,nodeid);
+			}
+			else {
+				mactreeRotateRR(tree,nodeid);
+			}
+		}
+		return newid;
+	}
+	else {
+		// update existing node
+		memcpy(tree->key[nodeid],key,MACTREE_KEYSIZE);
+		memcpy(tree->value[nodeid],value,MACTREE_VALUESIZE);
+		return nodeid;
+	}
+}
+static int mactreeInsert(struct s_mactree *tree, u_int8_t *key, u_int8_t *value) {
+	if(tree->nodecount > 0) {
+		if(tree->nodecount < MACTREE_SIZE) {
+			return mactreeInsertRecursive(tree,key,value,0,0);
+		}
+		else {
+			return -1;
+		}
+	}
+	else {
+		// create root node
+		mactreeInsertHere(tree,key,value,0,0);
+		return 0;
+	}
+}
+static int mactreeFindNodeRecursive(struct s_mactree *tree, u_int8_t *key, int nodeid, int *parentid, int *parentright) {
+	int cmpvalue = mactreeCompareKey(tree->key[nodeid],key);
+	if(cmpvalue > 0) {
+		// search left subtree
+		if(tree->left[nodeid] > 0) {
+			if(parentid != NULL) { *parentid = nodeid; *parentright = 0; }
+			return mactreeFindNodeRecursive(tree,key,tree->left[nodeid],parentid,parentright);
+		}
+		else {
+			// node not found
+			return -1;
+		}
+	}
+	else if(cmpvalue < 0) {
+		// search right subtree
+		if(tree->right[nodeid] > 0) {
+			if(parentid != NULL) { *parentid = nodeid; *parentright = 1; }
+			return mactreeFindNodeRecursive(tree,key,tree->right[nodeid],parentid,parentright);
+		}
+		else {
+			// node not found
+			return -1;
+		}
+	}
+	else {
+		// node found
+		return nodeid;
+	}
+}
+static int mactreeFindNode(struct s_mactree *tree, u_int8_t *key, int *parentid, int *parentright) {
+	if(parentid != NULL) *parentid = -1;
+	if(tree->nodecount > 0) {
+		return mactreeFindNodeRecursive(tree,key,0,parentid,parentright);
+	}
+	else {
+		return -1;
+	}
+}
+static int mactreeGetNodeID(struct s_mactree *tree, u_int8_t *key) {
+	return mactreeFindNode(tree,key,NULL,NULL);
+}
+static int mactreeGetMostLeftNode(struct s_mactree *tree, int nodeid, int *parentid) {
+	int l = tree->left[nodeid];
+	if(l > 0) {
+		if(parentid != NULL) *parentid = nodeid;
+		return mactreeGetMostLeftNode(tree,l,parentid);
+	}
+	else {
+		return nodeid;
+	}
+}
+static int mactreeGetMostRightNode(struct s_mactree *tree, int nodeid, int *parentid) {
+	int r = tree->right[nodeid];
+	if(r > 0) {
+		if(parentid != NULL) *parentid = nodeid;
+		return mactreeGetMostRightNode(tree,r,parentid);
+	}
+	else {
+		return nodeid;
+	}
+}
+static void mactreeMoveNode(struct s_mactree *tree, int nodeid) { // move a node from the last array position
+	int maxnodeid, maxparentid, maxparentright = 0;
+	if(tree->nodecount > 1) {
+		maxnodeid = tree->nodecount-1;
+		if(nodeid == 0) throwError("tried to move the root node, which is impossible!");
+		if(nodeid < maxnodeid) {
+			mactreeFindNode(tree, tree->key[maxnodeid], &maxparentid, &maxparentright);
+			if(!(maxparentid < 0)) {
+				if(maxparentright) {
+					tree->right[maxparentid] = nodeid;
+				}
+				else {
+					tree->left[maxparentid] = nodeid;
+				}
+			}
+			mactreeCopyNode(tree,nodeid,maxnodeid);
+		}
+	}
+}
+static int mactreeDeleteRecursive(struct s_mactree *tree, u_int8_t *key, int nodeid, int parentid, int parentright, int removethis) {
+	int ret = -1;
+	int repnode, repparent, cmpvalue;
+	if(removethis) {
+		if(tree->left[nodeid] > 0 && tree->right[nodeid] > 0) {
+			// this node has left & right subtrees
+			if(mactreeCalculateBalance(tree,nodeid) < 0) {
+				repnode = mactreeGetMostLeftNode(tree,tree->right[nodeid],&repparent);
+				mactreeCopyData(tree,nodeid,repnode);
+				repnode = mactreeDeleteRecursive(tree,tree->key[nodeid],tree->right[nodeid],nodeid,1,0);
+			}
+			else {
+				repnode = mactreeGetMostRightNode(tree,tree->left[nodeid],&repparent);
+				mactreeCopyData(tree,nodeid,repnode);
+				repnode = mactreeDeleteRecursive(tree,tree->key[nodeid],tree->left[nodeid],nodeid,0,0);
+			}
+			return repnode;
+		}
+		else if(tree->left[nodeid] > 0) {
+			// this node has a left subtree
+			repnode = tree->left[nodeid];
+			mactreeCopyNode(tree,nodeid,repnode);
+			return repnode;
+		}
+		else if(tree->right[nodeid] > 0) {
+			// this node has a right subtree
+			repnode = tree->right[nodeid];
+			mactreeCopyNode(tree,nodeid,repnode);
+			return repnode;
+		}
+		else {
+			// this is a leaf node
+			if(parentid < 0) {
+				// deleting the root node means just do nothing here
+				return 0;
+			}
+			else {
+				if(parentright) {
+					tree->right[parentid] = 0;
+				}
+				else {
+					tree->left[parentid] = 0;
+				}
+				return nodeid;
+			}
+		}
+	}
+	else {
+		// search node that should be deleted
+		cmpvalue = mactreeCompareKey(tree->key[nodeid],key);
+		if(cmpvalue > 0) {
+			// search left subtree
+			if(tree->left[nodeid] > 0) {
+				ret = mactreeDeleteRecursive(tree,key,tree->left[nodeid],nodeid,0,0);
+				mactreeRebalance(tree,nodeid);
+				return ret;
+			}
+			else {
+				// node not found
+				return -1;
+			}
+		}
+		else if(cmpvalue < 0) {
+			// search right subtree
+			if(tree->right[nodeid] > 0) {
+				ret = mactreeDeleteRecursive(tree,key,tree->right[nodeid],nodeid,1,0);
+				mactreeRebalance(tree,nodeid);
+				return ret;
+			}
+			else {
+				// node not found
+				return -1;
+			}
+		}
+		else {
+			// node found, lets delete it
+			ret = mactreeDeleteRecursive(tree,key,nodeid,parentid,parentright,1);
+			mactreeRebalance(tree,nodeid);
+			return ret;
+		}
+	}
+}
+static int mactreeDelete(struct s_mactree *tree, u_int8_t *key) {
+	int ret;
+	if(tree->nodecount > 0) {
+		ret = mactreeDeleteRecursive(tree,key,0,-1,0,0);
+		if(!(ret < 0)) {
+			mactreeMoveNode(tree,ret);
+			tree->nodecount--;
+			return 1;
+		}
+		else {
+			return 0;
+		}
+	}
+	else {
+		return 0;
+	}
+}
+static void mactreeDeleteByValue(struct s_mactree *tree, u_int8_t *value) {
+	u_int8_t key[MACTREE_KEYSIZE];
+	int i = 0;
+	while(i < tree->nodecount) {
+		if(mactreeCompareValue(tree->value[i],value) == 0) {
+			memcpy(key,tree->key[i],MACTREE_KEYSIZE);
+			mactreeDelete(tree,key);
+		}
+		else {
+			i++;
+		}
+	}
+}
+static void mactreeInit(struct s_mactree *tree) {
+	tree->nodecount = 0;
+}
+// avl tree code ends here
+
+
+// initialize mac table
+static void mactableInit() {
+	mactreeInit(&g_mactree);
+}
+
+
+// remove all mac addresses that belong to the removed peer
+static void mactableRemovePeer(u_int8_t peerid) {
+	mactreeDeleteByValue(&g_mactree,&peerid);
+}
+
+
+// get peerid from mac address
+static int mactableGetPeer(u_int8_t *macaddr) {
+	int pos = mactreeGetNodeID(&g_mactree,macaddr);
+	if(pos < 0) {
+		return -1;
+	}
+	else {
+		return g_mactree.value[pos][0];
+	}
+}
+
+
+// add mac address to mac lookup table
+static void mactableAddMAC(u_int8_t peerid, u_int8_t *macaddr) {
+	if((macaddr[0] & 0x01) == 0) { // only insert unicast frames into mactable
+		if(mactreeInsert(&g_mactree,macaddr,&peerid) < 0) mactreeInit(&g_mactree);
+	}
+}
+
+
+// decode ethernet frame
+static void decodeFrame() {
+	char pbuf[PACKET_BUFSIZE];
+	char *framebuf = &pbuf[PBYTE_PAYLOAD];
+	int framelen = read(g_fd[FDID_TAP].fd,framebuf,(PACKET_BUFSIZE - PBYTE_PAYLOAD));
+	u_int8_t *mac;
+	int peerid, pos, i;
+	if(framelen > MACTREE_KEYSIZE) {
+		mac = (u_int8_t *)&framebuf[0];
+		peerid = mactableGetPeer(mac);
+		if(peerid < 0 || peerid >= PEERCOUNT_HARDLIMIT) {
+			// broadcast frame to all active peers
+			for(i=0; i<g_peertable.fwdcount; i++) {
+				pos = g_peertable.fwdlookup[i];
+				encodeEthernetPacket(pos,pbuf,framelen);
+			}
+		}
+		else {
+			// send frame to destination peer
+			encodeEthernetPacket(peerid,pbuf,framelen);
+		}
+	}
+}

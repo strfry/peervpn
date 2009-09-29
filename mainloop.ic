@@ -1,0 +1,61 @@
+/***************************************************************************
+ *   Copyright (C) 2008 by Tobias Volk                                     *
+ *   mail@tobiasvolk.de                                                    *
+ *                                                                         *
+ *   This program is free software: you can redistribute it and/or modify  *
+ *   it under the terms of the GNU General Public License as published by  *
+ *   the Free Software Foundation, either version 3 of the License, or     *
+ *   (at your option) any later version.                                   *
+ *                                                                         *
+ *   This program is distributed in the hope that it will be useful,       *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+ *   GNU General Public License for more details.                          *
+ *                                                                         *
+ *   You should have received a copy of the GNU General Public License     *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
+ ***************************************************************************/
+
+
+// the mainloop
+static void mainLoop() {
+	int pingclock = 0;
+	int pingcount = 0;
+
+	while(g_mainloop) {
+		// wait until some fds become active
+		poll(g_fd,FDID_COUNT,POLLWAIT);
+
+		// check udp socket
+		if(!(g_fd[FDID_SOCKET].fd < 0) && g_fd[FDID_SOCKET].revents) {
+			if((g_fd[FDID_SOCKET].revents & POLLERR) != 0) throwError("socket error!");
+			decodePacket();
+		}
+
+		// check for ethernet frames on tap device
+		if(!(g_fd[FDID_TAP].fd < 0) && g_fd[FDID_TAP].revents) {
+			if((g_fd[FDID_TAP].revents & POLLERR) != 0) throwError("tap device error!");
+			decodeFrame();
+		}
+
+		// check console
+		if(!(g_fd[FDID_CONSOLE].fd < 0) && g_fd[FDID_CONSOLE].revents) {
+			if((g_fd[FDID_CONSOLE].revents & POLLERR) != 0) throwError("console error!");
+			decodeConsole();
+		}
+
+		// do some pinging
+		if(pingclock == 0) {
+			if(pingcount == 0) connectInitpeers();
+			else pingcount = 0;
+		}
+		pingclock = ((pingclock + 1) % PEERCOUNT_HARDLIMIT);
+		if(pingPeer(pingclock)) pingcount++;
+		
+		// do consistency checks
+		#if DEBUG_LEVEL > 0
+		consistencyChecks();
+		#endif
+	}
+}
+
