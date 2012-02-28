@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2008 by Tobias Volk                                     *
+ *   Copyright (C) 2012 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -23,6 +23,39 @@ void sighandler(int sig) {
 }
 
 
+int loadengine(const char *engine_name) {
+	const char **pre_cmds = NULL;
+	const char **post_cmds = NULL;
+	int pre_num = 0;
+	int post_num = 0;
+	ENGINE *e = ENGINE_by_id(engine_name);
+	if(!e) {
+		return 0;
+	}
+	while(pre_num--) {
+		if(!ENGINE_ctrl_cmd_string(e, pre_cmds[0], pre_cmds[1], 0)) {
+			ENGINE_free(e);
+			return 0;
+		}
+		pre_cmds += 2;
+	}
+	if(!ENGINE_init(e)) {
+		ENGINE_free(e);
+		return 0;
+	}
+	ENGINE_free(e);
+	while(post_num--) {
+		if(!ENGINE_ctrl_cmd_string(e, post_cmds[0], post_cmds[1], 0)) {
+			ENGINE_finish(e);
+			return 0;
+		}
+		post_cmds += 2;
+	}
+	ENGINE_set_default(e, ENGINE_METHOD_ALL & ~ENGINE_METHOD_RAND);
+	return 1;
+}
+
+
 // initialization sequence
 void init(struct s_initconfig *initconfig) {
 	int c,i,j,k,l,m;
@@ -38,25 +71,14 @@ void init(struct s_initconfig *initconfig) {
 	srandom(g_starttime);
 
 	// create data structures
-	g_config.windowsize = initconfig->windowsize;
-	g_config.enablerelay = initconfig->enablerelay;
-	g_config.enableindirect = initconfig->enableindirect;
-	g_config.psklen = initconfig->psklen;
-	memcpy(g_config.psk,initconfig->psk,CRYPTO_PSKBUF_SIZE);
-	genClientID(&g_clientid);
-	genNetID(&g_netid,initconfig->networkname);
 	memset(&g_saddr,0,sizeof(struct sockaddr_in6));
 	g_saddr.sin6_family = AF_INET6;
 	g_saddrlen = sizeof(struct sockaddr_in6);
-	g_peertable.fwdcount = 0;
-	g_peertable.clockn = 0;
-	for(i=0; i<PEERCOUNT_HARDLIMIT; i++) g_peertable.status[i] = PEERSTATUS_INVALID;
 	for(i=0; i<FDID_COUNT; i++) g_fd[i].fd = -1;
-	mactableInit();
 
 	// load initpeers
 	i=0;j=0;k=0;l=0;m=0;
-	*(u_int8_t *)(&g_config.initpeers[0]) = 0;
+	*(u_int8_t *)(&g_initpeers[0]) = 0;
 	for(;;) {
 		c = initconfig->initpeers[i];
 		if(m) {
@@ -65,11 +87,11 @@ void init(struct s_initconfig *initconfig) {
 				m=k-j;
 				if(m>0) {
 					if(m > 254) m = 254;
-					*(u_int8_t *)(&g_config.initpeers[l]) = (m+1);
-					memcpy(&g_config.initpeers[l+1],&initconfig->initpeers[j],m);
-					g_config.initpeers[l+1+m] = '\0';
+					*(u_int8_t *)(&g_initpeers[l]) = (m+1);
+					memcpy(&g_initpeers[l+1],&initconfig->initpeers[j],m);
+					g_initpeers[l+1+m] = '\0';
 					l = l+2+m;
-					*(u_int8_t *)(&g_config.initpeers[l]) = 0;
+					*(u_int8_t *)(&g_initpeers[l]) = 0;
 				}
 				m=0;
 			}
@@ -89,7 +111,7 @@ void init(struct s_initconfig *initconfig) {
 	if(initconfig->enableconsole) {
 		g_fd[FDID_CONSOLE].fd = STDIN_FILENO;
 		g_fd[FDID_CONSOLE].events = POLLIN;
-		g_config.enableconsole = initconfig->enableconsole;
+		//g_config.enableconsole = initconfig->enableconsole;
 	}
 	
 	// open udp socket
@@ -99,11 +121,11 @@ void init(struct s_initconfig *initconfig) {
 	// open tap device
 	if(initconfig->enableeth) {
 		if((g_fd[FDID_TAP].fd = openTapDevice(initconfig->tapname)) < 0) {
-			g_config.enableeth = 0;
+			g_enableeth = 0;
 			throwError("tap device could not be opened!");
 		}
 		else {
-			g_config.enableeth = 1;
+			g_enableeth = 1;
 			g_fd[FDID_TAP].events = POLLIN;
 			if(strlen(initconfig->upcmd) > 0) {
 				// execute shell command
@@ -114,28 +136,71 @@ void init(struct s_initconfig *initconfig) {
 		}
 	}
 	else {
-		g_config.enableeth = 0;
+		g_enableeth = 0;
+	}
+	
+	
+	// load OpenSSL engines
+	ENGINE_load_builtin_engines();
+	ENGINE_register_all_complete();
+	i=0;j=0;k=0;l=0;m=0;
+	str[0] = '\0';
+	for(;;) {
+		c = initconfig->engines[i];
+		if(isWhitespaceChar(c) || c == '\0') {
+			m=i-j;
+			if(m>0) {
+				if(m > 254) m = 254;
+				memcpy(str,&initconfig->engines[j],m);
+				str[m] = '\0';
+				l = l+2+m;
+				j = i+1;
+				if(k < 1) {
+					printf("\nloading OpenSSL engines...\n");
+					ENGINE_load_builtin_engines();
+					ENGINE_register_all_complete();
+					k = 1;
+				}
+				printf("   engine \"%s\": ",str);
+				if(loadengine(str)) {
+					printf("ok\n");
+				}
+				else {
+					printf("failed\n");
+				}
+			}
+			m=0;
+		}
+		if(c == '\0') break;
+		i++;
 	}
 
-	// drop privileges
-	dropPrivileges(initconfig->userstr, initconfig->groupstr, initconfig->chrootstr);
 
-	// setup crypto
-	cryptoInit();
+	// initialize p2p core
+	g_p2psec = p2psecCreate();
+	if(!p2psecLoadDefaults(g_p2psec)) throwError("failed to load defaults!");
+	if(!p2psecGeneratePrivkey(g_p2psec, 1024)) throwError("failed to generate private key!");
+	p2psecSetNetname(g_p2psec, initconfig->networkname, strlen(initconfig->networkname));
+	p2psecSetPassword(g_p2psec, initconfig->password, initconfig->password_len);
+	p2psecEnableFragmentation(g_p2psec);
+	if(!p2psecStart(g_p2psec)) throwError("failed to start p2p core!");
+	
+	// initialize mac table
+	if(!mapCreate(&g_mactable, 8192, 6, sizeof(int))) throwError("failed to setup mactable!\n");
+	mapEnableReplaceOld(&g_mactable);
+	if(mapGetKeySize(&g_mactable) != 6) throwError("failed to setup mactable!\n");
+	if(mapGetValueSize(&g_mactable) != sizeof(int)) throwError("failed to setup mactable!\n");
 	
 	// show client & network id
 	printf("\n");
-	byteArrayToString(str, localaddr.addr, PEERADDR_LENGTH);
-	printf("Local Address: %s\n", str);
-	byteArrayToString(str, g_clientid.id, CLIENTID_LENGTH);
+	byteArrayToString(str, mapGetKeyByID(&g_p2psec->mgt.map, 0), p2psecGetNodeIDSize());
 	printf("Client ID: %s\n", str);
-	byteArrayToString(str, g_netid.id, NETID_LENGTH);
+	byteArrayToString(str, g_p2psec->mgt.netid.id, netid_SIZE);
 	printf("Network ID: %s\n", str);
-	genNetStr(str,&g_netid);
-	printf("Network Name: %s\n", str);
-	byteArrayToString(str, g_config.psk, g_config.psklen);
-	printf("Shared key (%d bit): %s\n", g_config.psklen*8, str);
 	printf("\n");
+
+	// drop privileges
+	dropPrivileges(initconfig->userstr, initconfig->groupstr, initconfig->chrootstr);
 
 	// enter main loop
 	printf("entering main loop...\n");
@@ -143,12 +208,8 @@ void init(struct s_initconfig *initconfig) {
 	mainLoop();
 	printf("\nmain loop left.\n");
 
-	// sign off
-	signoffAllRemotePeers();
-
-	// shutdown crypto
-	cryptoShutdown();
-
+	p2psecStop(g_p2psec);
+	
 	// close tap device
 	if(!(g_fd[FDID_TAP].fd < 0)) {
 		close(g_fd[FDID_TAP].fd);

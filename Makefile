@@ -1,6 +1,6 @@
 CC=gcc 
-CFLAGS=-Wall -O3
-LDFLAGS=-lssl
+CFLAGS=-Os
+LDFLAGS=-lcrypto
 
 all: peervpn
 peervpn: peervpn.o

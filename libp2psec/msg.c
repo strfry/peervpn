@@ -17,32 +17,15 @@
  ***************************************************************************/
 
 
-// drop privileges
-static void dropPrivileges(char *username, char *groupname, char *chrootdir) {
-	struct passwd *pwd = NULL;
-	struct group *grp = NULL;
+#ifndef F_MSG_C
+#define F_MSG_C
 
-	int swuser = 0;
-	int swgroup = 0;
 
-	if(strlen(username) > 0) {
-		if((pwd = getpwnam(username)) != NULL) {
-			swuser = 1;
-		}
-		else {
-			throwError("username not found!");
-		}
-	}
-	if(strlen(groupname) > 0) {
-		if((grp = getgrnam(groupname)) != NULL) {
-			swgroup = 1;
-		}
-		else {
-			throwError("groupname not found!");
-		}
-	}
+// The MSG structure.
+struct s_msg {
+	unsigned char *msg;
+	int len;
+};
 
-	if(strlen(chrootdir) > 0) if(chroot(chrootdir) < 0) throwError("chroot failed!");
-	if(swgroup) if(setgid(grp->gr_gid) < 0) throwError("could not switch group!");
-	if(swuser) if(setuid(pwd->pw_uid) < 0) throwError("could not switch user!");
-}
+
+#endif // F_MSG_C

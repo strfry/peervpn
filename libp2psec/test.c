@@ -17,32 +17,17 @@
  ***************************************************************************/
 
 
-// drop privileges
-static void dropPrivileges(char *username, char *groupname, char *chrootdir) {
-	struct passwd *pwd = NULL;
-	struct group *grp = NULL;
+#ifndef F_TEST_C
+#define F_TEST_C
 
-	int swuser = 0;
-	int swgroup = 0;
 
-	if(strlen(username) > 0) {
-		if((pwd = getpwnam(username)) != NULL) {
-			swuser = 1;
-		}
-		else {
-			throwError("username not found!");
-		}
-	}
-	if(strlen(groupname) > 0) {
-		if((grp = getgrnam(groupname)) != NULL) {
-			swgroup = 1;
-		}
-		else {
-			throwError("groupname not found!");
-		}
-	}
+#include "console_test.c"
 
-	if(strlen(chrootdir) > 0) if(chroot(chrootdir) < 0) throwError("chroot failed!");
-	if(swgroup) if(setgid(grp->gr_gid) < 0) throwError("could not switch group!");
-	if(swuser) if(setuid(pwd->pw_uid) < 0) throwError("could not switch user!");
+
+int main() {
+	if(!consoleTestsuite()) return 0;
+	return 0;
 }
+
+
+#endif // F_TEST_C

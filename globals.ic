@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2009 by Tobias Volk                                     *
+ *   Copyright (C) 2012 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -19,47 +19,14 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 19
-#define DEBUG_LEVEL 0
-
-
-// packet header positions
-#define PBYTE_IV 0
-#define PBYTE_PEERID 4
-#define PBYTE_CRYPT 5
-#define PBYTE_MD 5
-#define PBYTE_HDR 25
-#define PBYTE_PTYPE 25
-#define PBYTE_PLLENGTH 26
-#define PBYTE_SEQ 28
-#define PBYTE_PAYLOAD 32
+#define PEERVPN_VERSION_MINOR 20
 
 
 // compile time options & timing parameters
 #define INITPEER_STORAGE 1024
 #define CLIENTID_LENGTH 16
 #define COMMAND_BUFSIZE 1024
-#define MAX_SEQ 2147483647
-#define NETID_LENGTH 12
-#define HDR_SIZE (PBYTE_PAYLOAD - PBYTE_HDR)
-#define DIGEST_SIZE (PBYTE_HDR - PBYTE_MD)
-#define IV_SIZE 4
-#define IV_BUFSIZE EVP_MAX_IV_LENGTH + IV_SIZE
-#define KEY_BUFSIZE EVP_MAX_KEY_LENGTH
-#define DIGEST_BUFSIZE EVP_MAX_MD_SIZE
-#define PACKET_BUFSIZE 2048
-#define PACKETCRYPT_BUFSIZE PACKET_BUFSIZE + 64
-#define PEERCOUNT_SOFTLIMIT 128
-#define PEERCOUNT_HARDLIMIT 192
-#define PEERINFO_MAXDATA 8
-#define PING_INTERVAL_HS0 20
-#define PING_INTERVAL_HS1 10
-#define PING_INTERVAL_CONFIRMED 10
-#define PING_INTERVAL_ACTIVE 30
 #define POLLWAIT 100
-#define TIMEOUT_INACTIVE 120
-#define TIMEOUT_INVALID 480
-#define TIMEOUT_NEW 30
 
 
 // file descriptor positions
@@ -80,49 +47,9 @@
 #define PEERADDR_PORT_LENGTH 2
 
 
-// MAC address table configuration
-#define MACTREE_KEYSIZE 6
-#define MACTREE_VALUESIZE 1
-#define MACTREE_SIZE 4096
-
-
-// packet types
-#define PTYPE_HELLO0 0
-#define PTYPE_HELLO1 1
-#define PTYPE_HELLO2 2
-#define PTYPE_SIGNOFF 3
-#define PTYPE_PING 4
-#define PTYPE_PEERINFO 5
-#define PTYPE_RELAYIN 6
-#define PTYPE_RELAYOUT 7
-#define PTYPE_ETHERNET 8
-
-
-// client id types
-#define CLIENTID_TYPE_UNKNOWN 0
-#define CLIENTID_TYPE_SELF 1
-#define CLIENTID_TYPE_PEER 2
-
-
-// special peerids
-#define PEERID_ANONYMOUS 255
-
-
-// status codes
-#define PEERSTATUS_INVALID 0
-#define PEERSTATUS_UNCONFIRMED_HS0 1
-#define PEERSTATUS_UNCONFIRMED_HS1 2
-#define PEERSTATUS_CONFIRMED 3
-#define PEERSTATUS_ACTIVE 4
-
-
 // config parser options
-#define CONFPARSER_LINEBUF_SIZE 4096 -1
-#define CONFPARSER_NAMEBUF_SIZE 512 -1
-
-
-// crypto options
-#define CRYPTO_PSKBUF_SIZE 64
+#define CONFPARSER_LINEBUF_SIZE 4096
+#define CONFPARSER_NAMEBUF_SIZE 512
 
 
 // constraints
@@ -138,53 +65,11 @@
 #if PEERCOUNT_SOFTLIMIT > PEERCOUNT_HARDLIMIT
 #error
 #endif
-#ifdef EBUG
-#define DEBUG_LEVEL 1
-#endif
 
 
 // structures
 struct s_clientid {
 	u_int8_t id[CLIENTID_LENGTH];
-};
-struct s_netid {
-	u_int8_t id[NETID_LENGTH];
-};
-struct s_peeraddr {
-	u_int8_t addr[PEERADDR_LENGTH];
-};
-struct s_peertable {
-	int lastseen[PEERCOUNT_HARDLIMIT];
-	int lastping[PEERCOUNT_HARDLIMIT];
-	struct s_peeraddr addr[PEERCOUNT_HARDLIMIT];
-	struct s_clientid clientid[PEERCOUNT_HARDLIMIT];
-	u_int32_t seqwindow[PEERCOUNT_HARDLIMIT];
-	u_int32_t remoteseq[PEERCOUNT_HARDLIMIT];
-	u_int32_t ownseq[PEERCOUNT_HARDLIMIT];
-	u_int8_t ownid[PEERCOUNT_HARDLIMIT];
-	u_int8_t status[PEERCOUNT_HARDLIMIT];
-	u_int8_t revlookup[PEERCOUNT_HARDLIMIT];
-	u_int8_t fwdlookup[PEERCOUNT_HARDLIMIT];
-	u_int8_t fwdcount;
-	u_int8_t clockn;
-};
-struct s_mactree {
-	u_int16_t left[MACTREE_SIZE];
-	u_int16_t right[MACTREE_SIZE];
-	u_int8_t key[MACTREE_SIZE][MACTREE_KEYSIZE];
-	u_int8_t value[MACTREE_SIZE][MACTREE_VALUESIZE];
-	u_int8_t height[MACTREE_SIZE];
-	int nodecount;
-};
-struct s_config {
-	int enableindirect;
-	int enablerelay;
-	int enableeth;
-	int enableconsole;
-	int windowsize;
-	int psklen;
-	char initpeers[INITPEER_STORAGE+1];
-	u_int8_t psk[CRYPTO_PSKBUF_SIZE];
 };
 struct s_initconfig {
 	char sourceip[CONFPARSER_NAMEBUF_SIZE+1];
@@ -196,33 +81,29 @@ struct s_initconfig {
 	char networkname[CONFPARSER_NAMEBUF_SIZE+1];
 	char upcmd[CONFPARSER_NAMEBUF_SIZE+1];
 	char initpeers[CONFPARSER_NAMEBUF_SIZE+1];
-	u_int8_t psk[CRYPTO_PSKBUF_SIZE];
-	int psklen;
+	char engines[CONFPARSER_NAMEBUF_SIZE+1];
+	char password[CONFPARSER_NAMEBUF_SIZE+1];
+	int password_len;
 	int enableindirect;
 	int enablerelay;
 	int enableeth;
 	int enableconsole;
-	int windowsize;
 };
 
 
 // global constants
-const struct s_peeraddr g_zeroaddr = { .addr = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}};
-const struct s_peeraddr g_v4addr = { .addr = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF,0xFF,0x00,0x00,0x00,0x00,0x00,0x00}};
+const struct s_peeraddr g_zeroaddr = { .addr = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}};
+const struct s_peeraddr g_v4addr = { .addr = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0xFF,0xFF,0x00,0x00,0x00,0x00,0x00,0x00}};
 
 
 // global variables
+P2PSEC_CTX *g_p2psec;
 long g_starttime;
-struct s_clientid g_clientid;
-struct s_netid g_netid;
-struct s_peertable g_peertable;
-struct s_mactree g_mactree;
-struct s_config g_config;
 struct sockaddr_in6 g_saddr;
 struct pollfd g_fd[FDID_COUNT];
 int g_mainloop;
 int g_saddrlen;
-u_int8_t g_iv[IV_BUFSIZE];
-EVP_CIPHER_CTX g_cipherctx;
-EVP_MD_CTX g_mdctx;
-
+char g_initpeers[INITPEER_STORAGE+1];
+struct s_map g_mactable;
+int g_enableeth;
+int g_enableengines;

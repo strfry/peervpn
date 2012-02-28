@@ -17,32 +17,27 @@
  ***************************************************************************/
 
 
-// drop privileges
-static void dropPrivileges(char *username, char *groupname, char *chrootdir) {
-	struct passwd *pwd = NULL;
-	struct group *grp = NULL;
+#ifndef F_NETID_C
+#define F_NETID_C
 
-	int swuser = 0;
-	int swgroup = 0;
 
-	if(strlen(username) > 0) {
-		if((pwd = getpwnam(username)) != NULL) {
-			swuser = 1;
-		}
-		else {
-			throwError("username not found!");
-		}
-	}
-	if(strlen(groupname) > 0) {
-		if((grp = getgrnam(groupname)) != NULL) {
-			swgroup = 1;
-		}
-		else {
-			throwError("groupname not found!");
-		}
-	}
+#include "crypto.c"
 
-	if(strlen(chrootdir) > 0) if(chroot(chrootdir) < 0) throwError("chroot failed!");
-	if(swgroup) if(setgid(grp->gr_gid) < 0) throwError("could not switch group!");
-	if(swuser) if(setuid(pwd->pw_uid) < 0) throwError("could not switch user!");
+
+// NetID size in bytes.
+#define netid_SIZE 24
+
+
+// The NetID structure.
+struct s_netid {
+	unsigned char id[netid_SIZE];
+};
+
+
+static int netidSet(struct s_netid *netid, const char *netname, const int netname_len) {
+	memset(netid->id, 0, netid_SIZE);
+	return cryptoCalculateSHA256(netid->id, netid_SIZE, (unsigned char *)netname, netname_len);
 }
+
+
+#endif // F_NETID_C

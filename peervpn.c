@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2009 by Tobias Volk                                     *
+ *   Copyright (C) 2012 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -30,21 +30,16 @@
 #include <grp.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
-#include <openssl/evp.h>
-#include <openssl/rand.h>
+#include <openssl/engine.h>
 
 
+#include "libp2psec/p2psec.c"
 #include "globals.ic"
 #include "helpers.ic"
-#include "crypto.ic"
 #include "socket.ic"
 #include "tap.ic"
-#include "debug.ic"
-#include "packetenc.ic"
-#include "ethernet.ic"
-#include "peermgmt.ic"
-#include "packetdec.ic"
 #include "console.ic"
+#include "ethernet.ic"
 #include "mainloop.ic"
 #include "config.ic"
 #include "pwd.ic"
@@ -66,21 +61,16 @@ int main(int argc, char **argv) {
 	strcpy(config.chrootstr,"");
 	strcpy(config.networkname,"PEERVPN");
 	strcpy(config.initpeers,"");
-	config.psklen = 0;
-	config.windowsize = 1024;
+	strcpy(config.engines,"");
+	config.password_len = 0;
 	config.enableeth = 0;
 	config.enablerelay = 0;
 	config.enableindirect = 0;
 	config.enableconsole = 0;
 
 	printf("PeerVPN v%d.%03d\n", PEERVPN_VERSION_MAJOR, PEERVPN_VERSION_MINOR);
-	printf("(c)2009 Tobias Volk <mail@tobiasvolk.de>\n");
+	printf("(c)2012 Tobias Volk <mail@tobiasvolk.de>\n");
 	printf("\n");
-
-	#if DEBUG_LEVEL > 0
-	printf("debug build\n");
-	printf("\n");
-	#endif
 
 	switch(argc) {
 	case 2:

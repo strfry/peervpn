@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2008 by Tobias Volk                                     *
+ *   Copyright (C) 2012 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -17,35 +17,19 @@
  ***************************************************************************/
 
 
-// print table of MAC addresses
-static void printMacTable() {
-	int i;
-	char macstring[MACTREE_KEYSIZE*2+1];
-	printf("MAC address overview:\n");
-	for(i=0; i<g_mactree.nodecount; i++) {
-		byteArrayToString(macstring,g_mactree.key[i],MACTREE_KEYSIZE);
-		printf(" #%04d: mac=%s, peerid=0x%02X\n", i+1, macstring, g_mactree.value[i][0]);
-	}	
-}
-
 
 // print table of active peers
 static void printActivePeerTable() {
-	int i,pos;
-	char ipstring[PEERADDR_LENGTH*2+1];
-	char clientstring[CLIENTID_LENGTH*2+1];
-	printf("List of active peers:\n");
-	for(i=0; i<g_peertable.fwdcount; i++) {
-		pos = g_peertable.fwdlookup[i];
-		byteArrayToString(ipstring,g_peertable.addr[pos].addr,PEERADDR_LENGTH);
-		byteArrayToString(clientstring,g_peertable.clientid[pos].id,CLIENTID_LENGTH);
-		printf(" #%03d: peerid=0x%02X, clientid=%s, addr=%s, lastseen=%03d\n", i+1, pos, clientstring, ipstring, getUptime() - g_peertable.lastseen[pos]);
-	}
+	char str[8192];
+	p2psecStatus(g_p2psec, str, 8192);
+	printf("%s\n", str);
 }
 
 
 // parse command
 static void parseCMD(char *cmd, int cmdlen) {
+	char text[4096];
+	unsigned char new_peeraddr[peeraddr_SIZE];
 	if(cmd[0] == 'A' || cmd[0] == 'a') {
 		// ACTIVEPEERTABLE
 		printActivePeerTable();
@@ -55,35 +39,39 @@ static void parseCMD(char *cmd, int cmdlen) {
 		char pa[1024];
 		char pb[1024];
 		char pc[1024];
+		pa[0] = '\0';
+		pb[0] = '\0';
+		pc[0] = '\0';
 		struct s_peeraddr paddr;
 		sscanf(cmd,"%s %s %s",pa,pb,pc);
 		if(setPeerAddrByName(&paddr,pb,pc)) {
+			new_peeraddr[0] = 24;
+			new_peeraddr[1] = 24;
+			new_peeraddr[2] = 24;
+			new_peeraddr[3] = 24;
+			new_peeraddr[4] = 24;
+			new_peeraddr[5] = 24;
+			memcpy(&new_peeraddr[6], paddr.addr, 18);
+			if(p2psecConnect(g_p2psec, new_peeraddr)) {
+				utilByteArrayToHexstring(text, 4096, new_peeraddr, peeraddr_SIZE);
+				printf("connecting to %s...\n", text);
+			}
+			/*
 			if(connectNewPeer(NULL,&paddr,1,0,0,0)) {
 				printf("new connection created.\n");
 			}
 			else {
 				printf("could not create new connection.\n");
 			}
+			*/
 		}
 		else {
 			printf("could not get peer address.\n");
 		}
 		
 	}
-	if(cmd[0] == 'M' || cmd[0] == 'm') {
-		#if DEBUG_LEVEL > 0
-		if(cmd[1] == 'E' || cmd[1] == 'e') {
-			// MEMORY
-			printMemoryOverview();
-		}
-		#endif
-		if(cmd[1] == 'A' || cmd[1] == 'a') {
-			// MACTABLE
-			printMacTable();
-		}
-	}
 	if(cmd[0] == 'P' || cmd[0] == 'p') {
-		// PEERTABLE
+		// PEERDB
 		printActivePeerTable();
 	}
 }
