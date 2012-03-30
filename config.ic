@@ -178,6 +178,24 @@ static int parseConfigLine(char *line, int len, struct s_initconfig *cs) {
 			return 1;
 		}
 	}
+	else if(parseConfigLineCheckCommand(line,len,"enableipv4",&vpos)) {
+		if((a = parseConfigBoolean(&line[vpos])) < 0) {
+			return -1;
+		}
+		else {
+			cs->enableipv4 = a;
+			return 1;
+		}
+	}
+	else if(parseConfigLineCheckCommand(line,len,"enableipv6",&vpos)) {
+		if((a = parseConfigBoolean(&line[vpos])) < 0) {
+			return -1;
+		}
+		else {
+			cs->enableipv6 = a;
+			return 1;
+		}
+	}
 	else if(parseConfigLineCheckCommand(line,len,"endconfig",&vpos)) {
 		return 0;
 	}
