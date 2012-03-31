@@ -22,6 +22,7 @@ static void mainLoop() {
 	int tnow;
 	unsigned char buf[4096];
 	unsigned char msgbuf[4096];
+	unsigned char cmdbuf[1024];
 	unsigned char *msg;
 	int lastinit = 0;
 	int laststatus = 0;
@@ -80,7 +81,10 @@ static void mainLoop() {
 		
 		// check console
 		if(g_enableconsole > 0) {
-			decodeConsole();
+			len = ioReadSTDIN(&iostate, cmdbuf, 1024);
+			if(len > 0) {
+				decodeConsole((char *)cmdbuf, len);
+			}
 		}
 	}
 }

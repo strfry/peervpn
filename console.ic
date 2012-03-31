@@ -27,7 +27,7 @@ static void printActivePeerTable() {
 
 
 // parse command
-static void parseCMD(char *cmd, int cmdlen) {
+static void decodeConsole(char *cmd, int cmdlen) {
 	char text[4096];
 	unsigned char new_peeraddr[peeraddr_SIZE];
 	if(cmd[0] == 'A' || cmd[0] == 'a') {
@@ -58,12 +58,4 @@ static void parseCMD(char *cmd, int cmdlen) {
 		// PEERDB
 		printActivePeerTable();
 	}
-}
-
-
-// decode console command
-static void decodeConsole() {
-	char cmd[COMMAND_BUFSIZE] = {0,0};
-	int len = read(STDIN_FILENO, cmd, COMMAND_BUFSIZE);
-	if(len > 0) parseCMD(cmd,len);
 }

@@ -19,12 +19,11 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 21
+#define PEERVPN_VERSION_MINOR 22
 
 
 // compile time options & timing parameters
 #define INITPEER_STORAGE 1024
-#define COMMAND_BUFSIZE 1024
 #define POLLWAIT 1000
 
 
@@ -42,6 +41,8 @@ struct s_initconfig {
 	char groupstr[CONFPARSER_NAMEBUF_SIZE+1];
 	char chrootstr[CONFPARSER_NAMEBUF_SIZE+1];
 	char networkname[CONFPARSER_NAMEBUF_SIZE+1];
+	char ifconfig4[CONFPARSER_NAMEBUF_SIZE+1];
+	char ifconfig6[CONFPARSER_NAMEBUF_SIZE+1];
 	char upcmd[CONFPARSER_NAMEBUF_SIZE+1];
 	char initpeers[CONFPARSER_NAMEBUF_SIZE+1];
 	char engines[CONFPARSER_NAMEBUF_SIZE+1];

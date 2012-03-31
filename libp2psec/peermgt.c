@@ -474,7 +474,7 @@ static int peermgtDecodePacketAuth(struct s_peermgt *mgt, const struct s_packet_
 	struct s_nodeid peer_nodeid;
 	int peerid;
 	int dupid;
-	int64_t remoteflags;
+	int64_t remoteflags = 0;
 	
 	if(authmgtDecodeMsg(authmgt, data->pl_buf, data->pl_length, source_addr)) {
 		if(authmgtGetAuthedPeerNodeID(authmgt, &peer_nodeid)) {

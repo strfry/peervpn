@@ -1,6 +1,5 @@
-CC=cc
-CFLAGS=-Os
-LDFLAGS=-lcrypto -ldl -lz
+CFLAGS+=-O2
+LDFLAGS+=-lcrypto -ldl -lz
 
 all: peervpn
 peervpn: peervpn.o

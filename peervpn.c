@@ -19,17 +19,12 @@
 
 #include <signal.h>
 #include <stdio.h>
-#include <string.h>
-#include <time.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <pwd.h>
-#include <grp.h>
 #include <openssl/engine.h>
 
 
 #include "libp2psec/p2psec.c"
-#include "io.c"
+#include "platform/io.c"
+#include "platform/ifconfig.c"
 #include "globals.ic"
 #include "helpers.ic"
 #include "console.ic"
@@ -47,6 +42,8 @@ int main(int argc, char **argv) {
 
 	// default configuration
 	strcpy(config.tapname,"");
+	strcpy(config.ifconfig4,"");
+	strcpy(config.ifconfig6,"");
 	strcpy(config.upcmd,"");
 	strcpy(config.sourceip,"");
 	strcpy(config.sourceport,"");

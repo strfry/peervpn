@@ -61,6 +61,7 @@ int loadengine(const char *engine_name) {
 void init(struct s_initconfig *initconfig) {
 	int c,i,j,k,l,m;
 	char str[256];
+	char tapname[256];
 
 	// initialize signal handler
 	g_mainloop = 1;
@@ -71,7 +72,7 @@ void init(struct s_initconfig *initconfig) {
 
 	// load initpeers
 	i=0;j=0;k=0;l=0;m=0;
-	*(u_int8_t *)(&g_initpeers[0]) = 0;
+	g_initpeers[0] = 0;
 	for(;;) {
 		c = initconfig->initpeers[i];
 		if(m) {
@@ -80,11 +81,11 @@ void init(struct s_initconfig *initconfig) {
 				m=k-j;
 				if(m>0) {
 					if(m > 254) m = 254;
-					*(u_int8_t *)(&g_initpeers[l]) = (m+1);
+					g_initpeers[l] = (m+1);
 					memcpy(&g_initpeers[l+1],&initconfig->initpeers[j],m);
 					g_initpeers[l+1+m] = '\0';
 					l = l+2+m;
-					*(u_int8_t *)(&g_initpeers[l]) = 0;
+					g_initpeers[l] = 0;
 				}
 				m=0;
 			}
@@ -104,8 +105,12 @@ void init(struct s_initconfig *initconfig) {
 
 	// enable console
 	if(initconfig->enableconsole) {
-		g_enableconsole = 1;
-		if((fcntl(STDIN_FILENO,F_SETFL,O_NONBLOCK)) < 0) throwError("could not initialize console!");
+		if(ioOpenSTDIN(&iostate)) {
+			g_enableconsole = 1;
+		}
+		else {
+			throwError("could not initialize console!");
+		}
 	}
 	else {
 		g_enableconsole = 0;
@@ -139,16 +144,29 @@ void init(struct s_initconfig *initconfig) {
 	// open tap device
 	if(initconfig->enableeth) {
 		printf("opening TAP device...\n");
-		if(!ioOpenTap(&iostate, initconfig->tapname)) {
+		if(!ioOpenTap(&iostate, tapname, initconfig->tapname)) {
 			g_enableeth = 0;
 			throwError("tap device could not be opened!");
 		}
 		else {
 			g_enableeth = 1;
+			printf("   device \"%s\": ok.\n", tapname);
+			if(strlen(initconfig->ifconfig4) > 0) {
+				// configure IPv4 address
+				if(!(ifconfig4(tapname, strlen(tapname), initconfig->ifconfig4, strlen(initconfig->ifconfig4)))) {
+					logWarning("could not automatically configure IPv4 address!");
+				}
+			}
+			if(strlen(initconfig->ifconfig6) > 0) {
+				// configure IPv6 address
+				if(!(ifconfig6(tapname, strlen(tapname), initconfig->ifconfig6, strlen(initconfig->ifconfig6)))) {
+					logWarning("could not automatically configure IPv6 address!");
+				}
+			}
 			if(strlen(initconfig->upcmd) > 0) {
 				// execute shell command
-				if((system(initconfig->upcmd)) < 0) {
-					throwError("upcmd failed!");
+				if((ifconfigExec(initconfig->upcmd)) < 0) {
+					logWarning("upcmd failed!");
 				}
 			}
 		}
