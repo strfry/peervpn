@@ -484,8 +484,8 @@ static int peermgtDecodePacketAuth(struct s_peermgt *mgt, const struct s_packet_
 				peerid = peermgtNew(mgt, &peer_nodeid, source_addr);
 			}
 			else {
-				// Replace existing session.
-				peerid = dupid;
+				// Don't replace active existing session.
+				peerid = -1;
 			}
 			if(peerid > 0) {
 				// NodeID gets accepted here.
@@ -696,6 +696,7 @@ static int peermgtSendUserdata(struct s_peermgt *mgt, const struct s_msg *sendms
 						if(mgt->loopback) {
 							memcpy(mgt->msgbuf, sendmsg->msg, sendmsg->len);
 							mgt->msgsize = sendmsg->len;
+							mgt->msgpeerid = outpeerid;
 							return 1;
 						}
 					}

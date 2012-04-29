@@ -246,6 +246,9 @@ void init(struct s_initconfig *initconfig) {
 
 	// drop privileges
 	dropPrivileges(initconfig->userstr, initconfig->groupstr, initconfig->chrootstr);
+	if(initconfig->enableprivdrop) {
+		dropPrivilegesAuto();
+	}
 
 	// enter main loop
 	printf("entering main loop...\n");

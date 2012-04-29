@@ -157,6 +157,15 @@ static int parseConfigLine(char *line, int len, struct s_initconfig *cs) {
 			return 1;
 		}
 	}
+	else if(parseConfigLineCheckCommand(line,len,"enableprivdrop",&vpos)) {
+		if((a = parseConfigBoolean(&line[vpos])) < 0) {
+			return -1;
+		}
+		else {
+			cs->enableprivdrop = a;
+			return 1;
+		}
+	}
 	else if(parseConfigLineCheckCommand(line,len,"enabletunneling",&vpos)) {
 		if((a = parseConfigBoolean(&line[vpos])) < 0) {
 			return -1;

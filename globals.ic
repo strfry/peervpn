@@ -19,7 +19,7 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 22
+#define PEERVPN_VERSION_MINOR 23
 
 
 // compile time options & timing parameters
@@ -51,9 +51,10 @@ struct s_initconfig {
 	int enableindirect;
 	int enablerelay;
 	int enableeth;
-	int enableconsole;
 	int enableipv4;
 	int enableipv6;
+	int enableprivdrop;
+	int enableconsole;
 };
 
 

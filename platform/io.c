@@ -21,8 +21,12 @@
 #define F_IO_C
 
 
-#ifdef WIN32
+#if defined(__FreeBSD__)
+#define IO_BSD
+#elif defined(WIN32)
 #define IO_WINDOWS
+#else
+#define IO_LINUX
 #endif
 
 
@@ -35,15 +39,23 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <winioctl.h>
-#include "tapwin.h"
+#define IO_TAPWIN_IOCTL(request,method) CTL_CODE (FILE_DEVICE_UNKNOWN, request, method, FILE_ANY_ACCESS)
+#define IO_TAPWIN_IOCTL_SET_MEDIA_STATUS IO_TAPWIN_IOCTL(6, METHOD_BUFFERED)
+#define IO_TAPWIN_ADAPTER_KEY "SYSTEM\\CurrentControlSet\\Control\\Class\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
+#define IO_TAPWIN_NETWORK_CONNECTIONS_KEY "SYSTEM\\CurrentControlSet\\Control\\Network\\{4D36E972-E325-11CE-BFC1-08002BE10318}"
+#define IO_TAPWIN_USERMODEDEVICEDIR "\\\\.\\Global\\"
+#define IO_TAPWIN_TAPSUFFIX ".tap"
 #else
 #include <poll.h>
 #include <netdb.h>
+#ifdef IO_LINUX
 #include <linux/if_tun.h>
+#endif
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #endif
 
 
@@ -124,8 +136,7 @@ static int ioReadSTDIN(struct s_io_state *iostate, unsigned char *buf, const int
 #ifdef IO_WINDOWS
 #define IO_TAPSEARCH_IF_GUID_FROM_NAME 0
 #define IO_TAPSEARCH_IF_NAME_FROM_GUID 1
-static char *ioOpenTapSearch(char *value, char *key, int type)
-{
+static char *ioOpenTapSearch(char *value, char *key, int type) {
 	int i = 0;
 	LONG status;
 	DWORD len;
@@ -139,39 +150,39 @@ static char *ioOpenTapSearch(char *value, char *key, int type)
 	if (!value || !key) {
 		return NULL;
 	}
-	status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, NETWORK_CONNECTIONS_KEY, 0, KEY_READ, &net_conn_key);
+	status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, IO_TAPWIN_NETWORK_CONNECTIONS_KEY, 0, KEY_READ, &net_conn_key);
 	if (status != ERROR_SUCCESS) {
 		return NULL;
 	}
 	while (!found) {
 		len = sizeof(guid);
-		status = RegEnumKeyEx(net_conn_key, i++, guid, &len,
-			NULL, NULL, NULL, NULL);
-		if (status == ERROR_NO_MORE_ITEMS) {
+		status = RegEnumKeyEx(net_conn_key, i++, guid, &len, NULL, NULL, NULL, NULL);
+		if(status == ERROR_NO_MORE_ITEMS) {
 			break;
-		} else if (status != ERROR_SUCCESS) {
+		}
+		else if(status != ERROR_SUCCESS) {
 			continue;
 		}
-		snprintf(conn_string, sizeof(conn_string), "%s\\%s\\Connection", NETWORK_CONNECTIONS_KEY, guid);
+		snprintf(conn_string, sizeof(conn_string), "%s\\%s\\Connection", IO_TAPWIN_NETWORK_CONNECTIONS_KEY, guid);
 		status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, conn_string, 0, KEY_READ, &conn_key);
-		if (status != ERROR_SUCCESS) {
+		if(status != ERROR_SUCCESS) {
 			continue;
 		}
 		len = sizeof(ifname);
 		status = RegQueryValueEx(conn_key, "Name", NULL, &value_type, (BYTE *)ifname, &len);
-		if (status != ERROR_SUCCESS || value_type != REG_SZ) {
+		if(status != ERROR_SUCCESS || value_type != REG_SZ) {
 			RegCloseKey(conn_key);
 			continue;
 		}
 		switch (type) {
 		case IO_TAPSEARCH_IF_GUID_FROM_NAME:
-			if (!strcmp(key, ifname)) {
+			if(!strcmp(key, ifname)) {
 				strcpy(value, guid);
 				found = TRUE;
 			}
 			break;
 		case IO_TAPSEARCH_IF_NAME_FROM_GUID:
-			if (!strcmp(key, guid)) {
+			if(!strcmp(key, guid)) {
 				strcpy(value, ifname);
 				found = TRUE;
 			}
@@ -182,7 +193,7 @@ static char *ioOpenTapSearch(char *value, char *key, int type)
 		RegCloseKey(conn_key);
 	}
 	RegCloseKey(net_conn_key);
-	if (found) {
+	if(found) {
 		return value;
 	}
 	return NULL;
@@ -191,15 +202,14 @@ static HANDLE ioOpenTapDev(char *guid, char *dev) {
 	HANDLE handle;
 	ULONG len, status;
 	char device_path[512];	
-	snprintf(device_path, sizeof(device_path), "%s%s%s", USERMODEDEVICEDIR, guid, TAPSUFFIX);
+	snprintf(device_path, sizeof(device_path), "%s%s%s", IO_TAPWIN_USERMODEDEVICEDIR, guid, IO_TAPWIN_TAPSUFFIX);
 	handle = CreateFile(device_path, GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM | FILE_FLAG_OVERLAPPED, 0);
 	if (handle == INVALID_HANDLE_VALUE) {
 		return INVALID_HANDLE_VALUE;
 	}
 	status = TRUE;
-	if (!DeviceIoControl(handle, TAP_IOCTL_SET_MEDIA_STATUS,
-		&status, sizeof(status),
-		&status, sizeof(status), &len, NULL)) {
+	if(!DeviceIoControl(handle, IO_TAPWIN_IOCTL_SET_MEDIA_STATUS, &status, sizeof(status), &status, sizeof(status), &len, NULL)) {
+		return INVALID_HANDLE_VALUE;
 	}
 	return handle;
 }
@@ -208,7 +218,7 @@ static HANDLE ioOpenTapDev(char *guid, char *dev) {
 
 // Opens TAP device. Returns 1 and a tapname (max. 256 bytes) if successful.
 static int ioOpenTap(struct s_io_state *iostate, char *tapname, const char *reqname) {
-#ifdef IO_WINDOWS
+#if defined(IO_WINDOWS)
 	HANDLE handle = INVALID_HANDLE_VALUE;
 	HKEY unit_key;
 	char guid[256];
@@ -260,7 +270,7 @@ static int ioOpenTap(struct s_io_state *iostate, char *tapname, const char *reqn
 	}
 	
 	int i = 0;
-	status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, ADAPTER_KEY, 0, KEY_READ, &adapter_key);
+	status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, IO_TAPWIN_ADAPTER_KEY, 0, KEY_READ, &adapter_key);
 	if (status != ERROR_SUCCESS) {
 		return 0;
 	}
@@ -274,7 +284,7 @@ static int ioOpenTap(struct s_io_state *iostate, char *tapname, const char *reqn
 		} else if (status != ERROR_SUCCESS) {
 			continue;
 		}
-		snprintf(unit_string, sizeof(unit_string), "%s\\%s", ADAPTER_KEY, enum_name);
+		snprintf(unit_string, sizeof(unit_string), "%s\\%s", IO_TAPWIN_ADAPTER_KEY, enum_name);
 		status = RegOpenKeyEx(HKEY_LOCAL_MACHINE, unit_string, 0, KEY_READ, &unit_key);
 		if (status != ERROR_SUCCESS) {
 			continue;
@@ -314,7 +324,56 @@ static int ioOpenTap(struct s_io_state *iostate, char *tapname, const char *reqn
 	else {
 		return 0;
 	}
-#else
+#elif defined(IO_BSD)
+	char file[264];
+	int tapfd;
+	int req_len;
+	int name_len;
+	int i;
+	
+	memset(file, 0, 264);
+	strncpy(file, "/dev/", 5);
+	
+	tapfd = -1;
+	
+	if(reqname == NULL) {
+		req_len = 0;
+	}
+	else {
+		req_len = strnlen(reqname, 255);
+	}
+
+	if(req_len > 0) {
+		strncpy(&file[5], reqname, 255);
+		tapfd = open(file,(O_RDWR | O_NONBLOCK));
+	}
+	else {
+		i = 0;
+		while((i < 1024) && (tapfd < 0)) {
+			snprintf(&file[5], 8, "tap%d", i);
+			tapfd = open(file,(O_RDWR | O_NONBLOCK));
+			i++;
+		}
+	}
+	
+	if(tapfd < 0) {
+		return 0;
+	}
+
+	iostate->fd[IO_FDID_TAP].fd = tapfd;
+	iostate->fd[IO_FDID_TAP].events = POLLIN;
+	
+	if(tapname != NULL) {
+		name_len = strlen(&file[5]);
+		tapname[0] = '\0';
+		if(name_len > 0 && name_len < 256) {
+			memcpy(tapname, &file[5], name_len);
+			tapname[name_len] = '\0';
+		}
+	}
+	
+	return 1;
+#elif defined(IO_LINUX)
 	struct ifreq ifr;
 	char *file = "/dev/net/tun";
 	int tapfd = open(file,(O_RDWR | O_NONBLOCK));
@@ -326,7 +385,9 @@ static int ioOpenTap(struct s_io_state *iostate, char *tapname, const char *reqn
 
 	memset(&ifr,0,sizeof(struct ifreq));
 	ifr.ifr_flags = (IFF_TAP | IFF_NO_PI);
-	strncpy(ifr.ifr_name, reqname, sizeof(ifr.ifr_name) - 1);
+	if(reqname != NULL) {
+		strncpy(ifr.ifr_name, reqname, sizeof(ifr.ifr_name) - 1);
+	}
 	if(ioctl(tapfd,TUNSETIFF,(void *)&ifr) < 0) {
 		return 0;
 	}
@@ -344,6 +405,8 @@ static int ioOpenTap(struct s_io_state *iostate, char *tapname, const char *reqn
 	}
 	
 	return 1;
+#else
+	return 0;
 #endif
 }
 
@@ -394,12 +457,12 @@ static int ioReadTap(struct s_io_state *iostate, unsigned char *buf, const int l
 static int ioOpenSocket(int *handle, const char *bindaddress, const char *bindport, const int domain, const int type, const int protocol) {
 	int ret;
 	int fd;
-	const char *zeroport = "0";
 	const char *useport;
 	const char *useaddr;
 	struct addrinfo *d = NULL;
 	struct addrinfo *di;
 	struct addrinfo hints;
+	const char *zero_c = "0";
 	memset(&hints,0,sizeof(struct addrinfo));
 #ifdef IO_WINDOWS
 	if((fd = WSASocket(domain, type, 0, 0, 0, WSA_FLAG_OVERLAPPED)) < 0) return 0;
@@ -425,10 +488,15 @@ static int ioOpenSocket(int *handle, const char *bindaddress, const char *bindpo
 		}
 	}
 	if(bindport == NULL) {
-		useport = zeroport;
+		useport = NULL;
 	}
 	else {
-		useport = bindport;
+		if(strlen(bindport) > 0) {
+			useport = bindport;
+		}
+		else {
+			useport = zero_c;
+		}
 	}
 	if(getaddrinfo(useaddr, useport, &hints, &d) == 0) {
 		ret = -1;

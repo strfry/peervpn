@@ -33,6 +33,16 @@
 			throwError("user/group changing not implemented in windows version!\n");
 		}
 	}
+	static void dropPrivilegesAuto() {
+		HANDLE h_process;
+		HANDLE h_token;
+		h_process = GetCurrentProcess();
+		if(OpenProcessToken(h_process,TOKEN_WRITE,&h_token)) {
+			if(AdjustTokenPrivileges(h_token, TRUE, NULL, 0, NULL, NULL)) {
+			}
+			CloseHandle(h_token);
+		}
+	}
 #else
 
 
@@ -71,4 +81,55 @@ static void dropPrivileges(char *username, char *groupname, char *chrootdir) {
 }
 
 
-#endif 
+// drop privileges (automatic version, without specified user and group name)
+static void dropPrivilegesAuto() {
+	const char usernames[2][8] = { "nobody", "nogroup" };
+	const int userids[2] = { 65534, 65533 };
+	struct passwd *pwd = NULL;
+	struct group *grp = NULL;
+	int i; int n;
+	
+	// group switching
+	for(i=0; i<4; i++) {
+		if(i >= 0 && i < 2) {
+			n = (i - 0);
+			grp = getgrnam(usernames[n]);
+			if(grp != NULL) {
+				if(!(setgid(grp->gr_gid) < 0)) {
+					break;
+				}
+			}
+		}
+		if(i >= 2 && i < 4) {
+			n = (i - 2);
+			if(!(setgid(userids[n]) < 0)) {
+				break;
+			}
+		}
+		
+	}
+
+	// user switching
+	for(i=0; i<4; i++) {
+		if(i >= 0 && i < 2) {
+			n = (i - 0);
+			pwd = getpwnam(usernames[n]);
+			if(pwd != NULL) {
+				if(!(setuid(pwd->pw_uid) < 0)) {
+					break;
+				}
+			}
+		}
+		if(i >= 2 && i < 4) {
+			n = (i - 2);
+			if(!(setuid(userids[n]) < 0)) {
+				break;
+			}
+		}
+		
+	}
+}
+
+
+#endif
+
