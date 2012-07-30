@@ -188,6 +188,7 @@ static int peermgtNew(struct s_peermgt *mgt, const struct s_nodeid *nodeid, cons
 		mgt->lastrecv[peerid] = tnow;
 		mgt->lastsend[peerid] = tnow;
 		seqInit(&mgt->seq[peerid], cryptoRand64());
+		mgt->remoteflags[peerid] = 0;
 		return peerid;
 	}
 	return -1;
@@ -594,7 +595,7 @@ static int peermgtDecodePacket(struct s_peermgt *mgt, const unsigned char *packe
 			if(peerid > 0) {
 				// packet has an active PeerID
 				mgt->msgsize = 0;
-				if(packetDecode(&data, packet, packet_len, &mgt->ctx[peerid], &mgt->seq[peerid])) {
+				if(packetDecode(&data, packet, packet_len, &mgt->ctx[peerid], &mgt->seq[peerid]) > 0) {
 					switch(data.pl_type) {
 						case packet_PLTYPE_USERDATA:
 							if(peermgtGetFlag(mgt, peermgt_FLAG_USERDATA)) {

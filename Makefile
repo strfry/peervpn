@@ -1,8 +1,9 @@
 CFLAGS+=-O2
-LDFLAGS+=-lcrypto -lz
+LIBS+=-lcrypto -lz
 
 all: peervpn
 peervpn: peervpn.o
+	$(CC) $(LDFLAGS) peervpn.o $(LIBS) -o $@
 peervpn.o: peervpn.c
 
 clean:

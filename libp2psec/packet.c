@@ -132,6 +132,10 @@ static int packetDecode(struct s_packet_data *data, const unsigned char *pbuf, c
 	data->pl_options = dec_buf[packet_CRHDR_PLOPT_START];
 	data->pl_type = dec_buf[packet_CRHDR_PLTYPE_START];
 	data->pl_length = utilReadInt16(&dec_buf[packet_CRHDR_PLLEN_START]);
+	if(!(data->pl_length > 0)) {
+		data->pl_length = 0;
+		return 0;
+	}
 	if(len < (packet_CRHDR_SIZE + data->pl_length)) return 0;
 	if(data->pl_length > data->pl_buf_size) return 0;
 	memcpy(data->pl_buf, &dec_buf[packet_CRHDR_SIZE], data->pl_length);
