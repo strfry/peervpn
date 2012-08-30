@@ -232,6 +232,16 @@ void p2psecDisableUserdata(P2PSEC_CTX *p2psec) {
 }
 
 
+void p2psecEnableRelay(P2PSEC_CTX *p2psec) {
+	p2psecSetFlag(p2psec, peermgt_FLAG_RELAY, 1);
+}
+
+
+void p2psecDisableRelay(P2PSEC_CTX *p2psec) {
+	p2psecSetFlag(p2psec, peermgt_FLAG_RELAY, 0);
+}
+
+
 int p2psecLoadDefaults(P2PSEC_CTX *p2psec) {
 	if(!p2psecLoadDH(p2psec)) return 0;
 	p2psecSetFlag(p2psec, (~(0)), 0);
@@ -241,6 +251,7 @@ int p2psecLoadDefaults(P2PSEC_CTX *p2psec) {
 	p2psecEnableFastauth(p2psec);
 	p2psecDisableFragmentation(p2psec);
 	p2psecEnableUserdata(p2psec);
+	p2psecDisableRelay(p2psec);
 	p2psecSetNetname(p2psec, NULL, 0);
 	p2psecSetPassword(p2psec, NULL, 0);
 	return 1;

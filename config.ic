@@ -17,6 +17,12 @@
  ***************************************************************************/
 
 
+static int parseConfigInt(char *str) {
+	int n = atoi(str);
+	if(n < 0) return -1;
+	return n;
+}
+
 static int parseConfigBoolean(char *str) {
 	if(strncmp(str,"true",4) == 0) {
 		return 1;
@@ -175,23 +181,22 @@ static int parseConfigLine(char *line, int len, struct s_initconfig *cs) {
 			return 1;
 		}
 	}
-	else if(parseConfigLineCheckCommand(line,len,"allowrelay",&vpos)) {
+	else if(parseConfigLineCheckCommand(line,len,"enablerelay",&vpos)) {
 		if((a = parseConfigBoolean(&line[vpos])) < 0) {
 			return -1;
 		}
 		else {
 			cs->enablerelay = a;
-			if(a == 1) logWarning("warning: relaying support is not available in this version of peervpn, enabling the allowrelay function will not have any effect!\n");
 			return 1;
 		}
 	}
-	else if(parseConfigLineCheckCommand(line,len,"allowindirect",&vpos)) {
+	else if(parseConfigLineCheckCommand(line,len,"enableindirect",&vpos)) {
 		if((a = parseConfigBoolean(&line[vpos])) < 0) {
 			return -1;
 		}
 		else {
 			cs->enableindirect = a;
-			if(a == 1) logWarning("warning: relaying support is not available in this version of peervpn, enabling the allowindirect function will not have any effect!\n");
+			if(a == 1) logWarning("warning: relaying support is not available in this version of peervpn, enabling the enableindirect function will not have any effect!\n");
 			return 1;
 		}
 	}
@@ -210,6 +215,15 @@ static int parseConfigLine(char *line, int len, struct s_initconfig *cs) {
 		}
 		else {
 			cs->enableipv6 = a;
+			return 1;
+		}
+	}
+	else if(parseConfigLineCheckCommand(line,len,"sockmark",&vpos)) {
+		if((a = parseConfigInt(&line[vpos])) < 0) {
+			return -1;
+		}
+		else {
+			cs->sockmark = a;
 			return 1;
 		}
 	}

@@ -29,20 +29,21 @@ static void printActivePeerTable() {
 // parse command
 static void decodeConsole(char *cmd, int cmdlen) {
 	char text[4096];
+	char pa[1024];
+	char pb[1024];
+	char pc[1024];
+	int i, j;
 	unsigned char new_peeraddr[peeraddr_SIZE];
-	if(cmd[0] == 'A' || cmd[0] == 'a') {
+	pa[0] = '\0';
+	pb[0] = '\0';
+	pc[0] = '\0';
+	sscanf(cmd,"%s %s %s",pa,pb,pc);
+	if(pa[0] == 'A' || pa[0] == 'a') {
 		// ACTIVEPEERTABLE
 		printActivePeerTable();
 	}
-	if(cmd[0] == 'I' || cmd[0] == 'i') {
-		// INSERTPEER
-		char pa[1024];
-		char pb[1024];
-		char pc[1024];
-		pa[0] = '\0';
-		pb[0] = '\0';
-		pc[0] = '\0';
-		sscanf(cmd,"%s %s %s",pa,pb,pc);
+	if(pa[0] == 'I' || pa[0] == 'i') {
+		// INSERTPEER <address>
 		if(ioGetUDPAddress(&iostate, new_peeraddr, pb, pc)) {
 			if(p2psecConnect(g_p2psec, new_peeraddr)) {
 				utilByteArrayToHexstring(text, 4096, new_peeraddr, peeraddr_SIZE);
@@ -52,10 +53,18 @@ static void decodeConsole(char *cmd, int cmdlen) {
 		else {
 			printf("could not get peer address.\n");
 		}
-		
 	}
-	if(cmd[0] == 'P' || cmd[0] == 'p') {
-		// PEERDB
-		printActivePeerTable();
+	if(pa[0] == 'P' || pa[0] == 'p') {
+		// PING <peerid>
+		sscanf(pb,"%d",&i);
+		peermgtSendPing(&g_p2psec->mgt, NULL, i);
+	}
+	if(pa[0] == 'R' || pa[0] == 'r') {
+		// RELAYPING <relayid> <peerid>
+		sscanf(pb,"%d",&i);
+		sscanf(pc,"%d",&j);
+		peermgtSendPing(&g_p2psec->mgt, NULL, i);
+		utilWriteInt32(g_p2psec->mgt.rrmsg.msg, j);
+		g_p2psec->mgt.rrmsgtype = packet_PLTYPE_RELAY_IN;
 	}
 }

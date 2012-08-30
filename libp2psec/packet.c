@@ -49,6 +49,10 @@
 #define packet_PLTYPE_USERDATA_FRAGMENT 1
 #define packet_PLTYPE_AUTH 2
 #define packet_PLTYPE_PEERINFO 3
+#define packet_PLTYPE_PING 4
+#define packet_PLTYPE_PONG 5
+#define packet_PLTYPE_RELAY_IN 6
+#define packet_PLTYPE_RELAY_OUT 7
 
 
 // constraints
@@ -123,12 +127,12 @@ static int packetDecode(struct s_packet_data *data, const unsigned char *pbuf, c
 
 	// decrypt packet
 	len = cryptoDec(ctx, dec_buf, pbuf_size, &pbuf[packet_PEERID_SIZE], (pbuf_size - packet_PEERID_SIZE), packet_HMAC_SIZE, packet_IV_SIZE);
-	if(len < packet_CRHDR_SIZE) return 0;
+	if(len < packet_CRHDR_SIZE) { return 0; };
 
 	// get packet data
 	data->peerid = packetGetPeerID(pbuf);
 	data->seq = utilReadInt64(&dec_buf[packet_CRHDR_SEQ_START]);
-	if(seqstate != NULL) if(!seqVerify(seqstate, data->seq)) return 0;
+	if(seqstate != NULL) if(!seqVerify(seqstate, data->seq)) { return 0; }
 	data->pl_options = dec_buf[packet_CRHDR_PLOPT_START];
 	data->pl_type = dec_buf[packet_CRHDR_PLTYPE_START];
 	data->pl_length = utilReadInt16(&dec_buf[packet_CRHDR_PLLEN_START]);
@@ -136,8 +140,8 @@ static int packetDecode(struct s_packet_data *data, const unsigned char *pbuf, c
 		data->pl_length = 0;
 		return 0;
 	}
-	if(len < (packet_CRHDR_SIZE + data->pl_length)) return 0;
-	if(data->pl_length > data->pl_buf_size) return 0;
+	if(len < (packet_CRHDR_SIZE + data->pl_length)) { return 0; }
+	if(data->pl_length > data->pl_buf_size) { return 0; }
 	memcpy(data->pl_buf, &dec_buf[packet_CRHDR_SIZE], data->pl_length);
 
 	// return length of decoded payload

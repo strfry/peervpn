@@ -454,7 +454,7 @@ static int ioReadTap(struct s_io_state *iostate, unsigned char *buf, const int l
 
 
 // Opens a socket. Returns 1 if successful.
-static int ioOpenSocket(int *handle, const char *bindaddress, const char *bindport, const int domain, const int type, const int protocol) {
+static int ioOpenSocket(int *handle, const char *bindaddress, const char *bindport, const int domain, const int type, const int protocol, const int sockmark) {
 	int ret;
 	int fd;
 	const char *useport;
@@ -472,6 +472,13 @@ static int ioOpenSocket(int *handle, const char *bindaddress, const char *bindpo
 	if((fcntl(fd,F_SETFL,O_NONBLOCK)) < 0) return 0;
 	if(domain == AF_INET6) setsockopt(fd, IPPROTO_IPV6, IPV6_V6ONLY, &one, sizeof(int));
 #endif
+	if(sockmark > 0) {
+#ifdef IO_LINUX
+	if(setsockopt(fd, SOL_SOCKET, SO_MARK, &sockmark, sizeof(int)) < 0) return 0;
+#else
+	return 0; // only supported in linux
+#endif
+	}
 	hints.ai_family = domain;
 	hints.ai_socktype = type;
 	hints.ai_protocol = protocol;
@@ -561,12 +568,12 @@ static int ioGetUDPv6Address(struct s_io_v6addr *addr, const char *hostname, con
 
 
 // Opens an IPv6 UDP socket. Returns 1 if successful.
-static int ioOpenUDPv6Socket(struct s_io_state *iostate, const char *bindaddress, const char *bindport) {
+static int ioOpenUDPv6Socket(struct s_io_state *iostate, const char *bindaddress, const char *bindport, const int sockmark) {
 #ifdef IO_WINDOWS
 	return 0; // not implemented
 #else
 	int fd;
-	if(ioOpenSocket(&fd, bindaddress, bindport, AF_INET6, SOCK_DGRAM, 0)) {
+	if(ioOpenSocket(&fd, bindaddress, bindport, AF_INET6, SOCK_DGRAM, 0, sockmark)) {
 		iostate->fd[IO_FDID_UDPV6SOCKET].fd = fd;
 		iostate->fd[IO_FDID_UDPV6SOCKET].events = POLLIN;
 		return 1;
@@ -658,9 +665,9 @@ static int ioGetUDPv4Address(struct s_io_v4addr *addr, const char *hostname, con
 
 
 // Opens an IPv4 UDP socket. Returns 1 if successful.
-static int ioOpenUDPv4Socket(struct s_io_state *iostate, const char *bindaddress, const char *bindport) {
+static int ioOpenUDPv4Socket(struct s_io_state *iostate, const char *bindaddress, const char *bindport, const int sockmark) {
 	int fd;
-	if(ioOpenSocket(&fd, bindaddress, bindport, AF_INET, SOCK_DGRAM, 0)) {
+	if(ioOpenSocket(&fd, bindaddress, bindport, AF_INET, SOCK_DGRAM, 0, sockmark)) {
 		iostate->fd[IO_FDID_UDPV4SOCKET].fd = fd;
 #ifdef IO_WINDOWS
 #else

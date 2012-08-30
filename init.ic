@@ -120,7 +120,7 @@ void init(struct s_initconfig *initconfig) {
 	i = 0;
 	printf("opening sockets...\n");
 	if(initconfig->enableipv4) {
-		if(ioOpenUDPv4Socket(&iostate, initconfig->sourceip, initconfig->sourceport)) {
+		if(ioOpenUDPv4Socket(&iostate, initconfig->sourceip, initconfig->sourceport, initconfig->sockmark)) {
 			printf("   IPv4/UDP: ok.\n");
 			i++;
 		}
@@ -129,7 +129,7 @@ void init(struct s_initconfig *initconfig) {
 		}
 	}
 	if(initconfig->enableipv6) {
-		if(ioOpenUDPv6Socket(&iostate, initconfig->sourceip, initconfig->sourceport)) {
+		if(ioOpenUDPv6Socket(&iostate, initconfig->sourceip, initconfig->sourceport, initconfig->sockmark)) {
 			printf("   IPv6/UDP: ok.\n");
 			i++;
 		}
@@ -226,6 +226,12 @@ void init(struct s_initconfig *initconfig) {
 	}
 	else {
 		p2psecDisableUserdata(g_p2psec);
+	}
+	if(initconfig->enablerelay) {
+		p2psecEnableRelay(g_p2psec);
+	}
+	else {
+		p2psecDisableRelay(g_p2psec);
 	}
 	if(!p2psecStart(g_p2psec)) throwError("failed to start p2p core!");
 	printf("   done.\n");

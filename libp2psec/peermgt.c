@@ -35,6 +35,10 @@
 #define peermgt_MSGSIZE_MAX 8192
 
 
+// Ping buffer size
+#define peermgt_PINGBUF_SIZE 64
+
+
 // Number of fragment buffers.
 #define peermgt_FRAGBUF_COUNT 64
 
@@ -54,7 +58,7 @@
 
 // Flags.
 #define peermgt_FLAG_USERDATA 0x0001
-#define peermgt_FLAG_F02 0x0002
+#define peermgt_FLAG_RELAY 0x0002
 #define peermgt_FLAG_F03 0x0004
 #define peermgt_FLAG_F04 0x0008
 #define peermgt_FLAG_F05 0x0010
@@ -74,6 +78,9 @@
 // Constraints.
 #if auth_MAXMSGSIZE > peermgt_MSGSIZE_MIN
 #error auth_MAXMSGSIZE too big
+#endif
+#if peermgt_PINGBUF_SIZE > peermgt_MSGSIZE_MIN
+#error peermgt_PINGBUF_SIZE too big
 #endif
 
 
@@ -97,12 +104,16 @@ struct s_peermgt {
 	int *conntime;
 	int localflags;
 	unsigned char msgbuf[peermgt_MSGSIZE_MAX];
+	unsigned char rrmsgbuf[peermgt_MSGSIZE_MAX];
 	int msgsize;
 	int msgpeerid;
 	struct s_msg outmsg;
 	int outmsgpeerid;
 	int outmsgbroadcast;
 	int outmsgbroadcastcount;
+	struct s_msg rrmsg;
+	int rrmsgpeerid;
+	int rrmsgtype;
 	int loopback;
 	int fragmentation;
 	int fragoutpeerid;
@@ -152,6 +163,32 @@ static int peermgtGetNextID(struct s_peermgt *mgt) {
 // Get PeerID of NodeID. Returns -1 if it is not found.
 static int peermgtGetID(struct s_peermgt *mgt, const struct s_nodeid *nodeid) {
 	return mapGetKeyID(&mgt->map, nodeid->id);
+}
+
+
+// Returns PeerID if active PeerID or NodeID is specified. Returns -1 if it is not found or both IDs are specified and don't match the same node.
+static int peermgtGetActiveID(struct s_peermgt *mgt, const struct s_nodeid *nodeid, const int peerid) {
+	int outpeerid = -1;
+	
+	if(nodeid != NULL) {
+		outpeerid = peermgtGetID(mgt, nodeid);
+		if(outpeerid < 0) return -1;
+	}
+	if(!(peerid < 0)) {
+		if(outpeerid < 0) {
+			outpeerid = peerid;
+		}
+		else {
+			if(peerid != outpeerid) return -1;
+		}
+	}
+	if(!(outpeerid < 0)) {
+		if(peermgtIsActiveID(mgt, outpeerid)) {
+			return outpeerid;
+		}
+	}
+
+	return -1;
 }
 
 
@@ -271,7 +308,7 @@ static int peermgtGetRemoteFlag(struct s_peermgt *mgt, const int peerid, const i
 
 
 // Generate peerinfo packet.
-static void peermgtGenPacketPeerinfo(struct s_peermgt *mgt, struct s_packet_data *data) {
+static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermgt *mgt) {
 	const int peerinfo_size = (packet_PEERID_SIZE + nodeid_SIZE + peeraddr_SIZE);
 	int peerinfo_max = mapGetKeyCount(&mgt->map);
 	int peerinfo_count = 0;
@@ -301,6 +338,19 @@ static void peermgtGenPacketPeerinfo(struct s_peermgt *mgt, struct s_packet_data
 	data->pl_options = 0;
 }
 
+
+// Generate generic packet.
+static void peermgtGenPacketGeneric(struct s_packet_data *data, const int type, const int options, const unsigned char *buf, const int len) {
+	if((len > 0) && (len < (data->pl_buf_size))) {
+		memcpy(data->pl_buf, buf, len);
+		data->pl_length = len;
+		data->pl_type = type;
+		data->pl_options = options;
+	}
+	else {
+		data->pl_length = 0;
+	}
+}
 
 
 // Get next peer manager packet. Returns length if successful.
@@ -406,6 +456,26 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 		}
 	}
 
+	// send out request-response packet
+	outlen = mgt->rrmsg.len;
+	if(outlen > 0) {
+		peerid = mgt->rrmsgpeerid;
+		mgt->rrmsg.len = 0;
+		if(peermgtIsActiveRemoteID(mgt, peerid)) {  // check if session is active
+			data.pl_buf = plbuf;
+			data.pl_buf_size = plbuf_size;
+			data.peerid = mgt->remoteid[peerid];
+			data.seq = ++mgt->remoteseq[peerid];
+			peermgtGenPacketGeneric(&data, mgt->rrmsgtype, 0, mgt->rrmsg.msg, outlen);
+			len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
+			if(len > 0) {
+				mgt->lastsend[peerid] = tnow;
+				*target = mgt->remoteaddr[peerid];
+				return len;
+			}
+		}
+	}
+
 	// send keepalive to peers
 	for(i=0; i<used; i++) {
 		peerid = peermgtGetNextID(mgt);
@@ -417,7 +487,7 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 						data.pl_buf_size = plbuf_size;
 						data.peerid = mgt->remoteid[peerid];
 						data.seq = ++mgt->remoteseq[peerid];
-						peermgtGenPacketPeerinfo(mgt, &data);
+						peermgtGenPacketPeerinfo(&data, mgt);
 						len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
 						if(len > 0) {
 							mgt->lastsend[peerid] = tnow;
@@ -555,6 +625,61 @@ static int peermgtDecodePacketPeerinfo(struct s_peermgt *mgt, const struct s_pac
 }
 
 
+// Decode ping packet
+static int peermgtDecodePacketPing(struct s_peermgt *mgt, const struct s_packet_data *data) {
+	int len = data->pl_length;
+	if(len == peermgt_PINGBUF_SIZE) {
+		memcpy(mgt->rrmsg.msg, data->pl_buf, peermgt_PINGBUF_SIZE);
+		mgt->rrmsgpeerid = data->peerid;
+		mgt->rrmsgtype = packet_PLTYPE_PONG;
+		mgt->rrmsg.len = peermgt_PINGBUF_SIZE;
+		return 1;
+	}
+	return 0;
+}
+
+
+// Decode pong packet
+static int peermgtDecodePacketPong(struct s_peermgt *mgt, const struct s_packet_data *data) {
+	int len = data->pl_length;
+	unsigned char pingbuf[peermgt_PINGBUF_SIZE];
+	if(len == peermgt_PINGBUF_SIZE) {
+		// not implemented yet
+		memcpy(pingbuf, data->pl_buf, peermgt_PINGBUF_SIZE);
+	}
+	return 0;
+}
+
+
+// Decode relay-in packet
+static int peermgtDecodePacketRelayIn(struct s_peermgt *mgt, const struct s_packet_data *data) {
+	int targetpeerid;
+	int len = data->pl_length;
+	
+	if((len > 4) && (len < (peermgt_MSGSIZE_MAX - 4))) {
+		targetpeerid = utilReadInt32(data->pl_buf);
+		if(peermgtIsActiveRemoteID(mgt, targetpeerid)) {
+			utilWriteInt32(&mgt->rrmsg.msg[0], data->peerid);
+			memcpy(&mgt->rrmsg.msg[4], &data->pl_buf[4], (len - 4));
+			mgt->rrmsgpeerid = targetpeerid;
+			mgt->rrmsgtype = packet_PLTYPE_RELAY_OUT;
+			mgt->rrmsg.len = len;
+			return 1;
+		}
+	}
+	
+	return 0;
+}
+
+
+// Decode relay-out packet
+static int peermgtDecodePacketRelayOut(struct s_peermgt *mgt, const struct s_packet_data *data) {
+	// not implemented yet
+	
+	return 0;
+}
+
+
 // Decode fragmented packet
 static int peermgtDecodeUserdataFragment(struct s_peermgt *mgt, struct s_packet_data *data) {
 	int fragcount = (data->pl_options >> 4);
@@ -596,40 +721,59 @@ static int peermgtDecodePacket(struct s_peermgt *mgt, const unsigned char *packe
 				// packet has an active PeerID
 				mgt->msgsize = 0;
 				if(packetDecode(&data, packet, packet_len, &mgt->ctx[peerid], &mgt->seq[peerid]) > 0) {
-					switch(data.pl_type) {
-						case packet_PLTYPE_USERDATA:
-							if(peermgtGetFlag(mgt, peermgt_FLAG_USERDATA)) {
-								ret = 1;
-								mgt->msgsize = data.pl_length;
-								mgt->msgpeerid = data.peerid;
-							}
-							else {
-								ret = 0;
-							}
-							break;
-						case packet_PLTYPE_USERDATA_FRAGMENT:
-							if(peermgtGetFlag(mgt, peermgt_FLAG_USERDATA)) {
-								ret = peermgtDecodeUserdataFragment(mgt, &data);
-								if(ret > 0) {
+					if((data.pl_length > 0) && (data.pl_length < peermgt_MSGSIZE_MAX)) {
+						switch(data.pl_type) {
+							case packet_PLTYPE_USERDATA:
+								if(peermgtGetFlag(mgt, peermgt_FLAG_USERDATA)) {
+									ret = 1;
 									mgt->msgsize = data.pl_length;
 									mgt->msgpeerid = data.peerid;
 								}
-							}
-							else {
+								else {
+									ret = 0;
+								}
+								break;
+							case packet_PLTYPE_USERDATA_FRAGMENT:
+								if(peermgtGetFlag(mgt, peermgt_FLAG_USERDATA)) {
+									ret = peermgtDecodeUserdataFragment(mgt, &data);
+									if(ret > 0) {
+										mgt->msgsize = data.pl_length;
+										mgt->msgpeerid = data.peerid;
+									}
+								}
+								else {
+									ret = 0;
+								}
+								break;
+							case packet_PLTYPE_PEERINFO:
+								ret = peermgtDecodePacketPeerinfo(mgt, &data);
+								break;
+							case packet_PLTYPE_PING:
+								ret = peermgtDecodePacketPing(mgt, &data);
+								break;
+							case packet_PLTYPE_PONG:
+								ret = peermgtDecodePacketPong(mgt, &data);
+								break;
+							case packet_PLTYPE_RELAY_IN:
+								if(peermgtGetFlag(mgt, peermgt_FLAG_RELAY)) {
+									ret = peermgtDecodePacketRelayIn(mgt, &data);
+								}
+								else {
+									ret = 0;
+								}
+								break;
+							case packet_PLTYPE_RELAY_OUT:
+								ret = peermgtDecodePacketRelayOut(mgt, &data);
+								break;
+							default:
 								ret = 0;
-							}
-							break;
-						case packet_PLTYPE_PEERINFO:
-							ret = peermgtDecodePacketPeerinfo(mgt, &data);
-							break;
-						default:
-							ret = 0;
-							break;
-					}
-					if(ret) {
-						mgt->lastrecv[peerid] = tnow;
-						mgt->remoteaddr[peerid] = *source_addr;
-						return 1;
+								break;
+						}
+						if(ret) {
+							mgt->lastrecv[peerid] = tnow;
+							mgt->remoteaddr[peerid] = *source_addr;
+							return 1;
+						}
 					}
 				}
 			}
@@ -668,38 +812,26 @@ static int peermgtRecvUserdata(struct s_peermgt *mgt, struct s_msg *recvmsg, str
 
 // Send user data. Return 1 if successful.
 static int peermgtSendUserdata(struct s_peermgt *mgt, const struct s_msg *sendmsg, const struct s_nodeid *tonodeid, const int topeerid) {
-	int outpeerid = -1;
+	int outpeerid;
+
 	if(sendmsg != NULL) {
 		if((sendmsg->len > 0) && (sendmsg->len <= peermgt_MSGSIZE_MAX)) {
-			if(tonodeid != NULL) {
-				outpeerid = peermgtGetID(mgt, tonodeid);
-				if(outpeerid < 0) return 0;
-			}
-			if(!(topeerid < 0)) {
-				if(outpeerid < 0) {
-					outpeerid = topeerid;
+			outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid);
+			if(outpeerid >= 0) {
+				if(outpeerid > 0) {
+					// message goes out
+					mgt->outmsg.msg = sendmsg->msg;
+					mgt->outmsg.len = sendmsg->len;
+					mgt->outmsgpeerid = outpeerid;
+					return 1;
 				}
 				else {
-					if(topeerid != outpeerid) return 0;
-				}
-			}
-			if(!(outpeerid < 0)) {
-				if(peermgtIsActiveID(mgt, outpeerid)) {
-					if(outpeerid > 0) {
-						// message goes out
-						mgt->outmsg.msg = sendmsg->msg;
-						mgt->outmsg.len = sendmsg->len;
-						mgt->outmsgpeerid = outpeerid;
+					// message goes to loopback
+					if(mgt->loopback) {
+						memcpy(mgt->msgbuf, sendmsg->msg, sendmsg->len);
+						mgt->msgsize = sendmsg->len;
+						mgt->msgpeerid = outpeerid;
 						return 1;
-					}
-					else {
-						// message goes to loopback
-						if(mgt->loopback) {
-							memcpy(mgt->msgbuf, sendmsg->msg, sendmsg->len);
-							mgt->msgsize = sendmsg->len;
-							mgt->msgpeerid = outpeerid;
-							return 1;
-						}
 					}
 				}
 			}
@@ -721,6 +853,26 @@ static int peermgtSendBroadcastUserdata(struct s_peermgt *mgt, const struct s_ms
 			return 1;
 		}
 	}
+	return 0;
+}
+
+
+// Send ping. Return 1 if successful.
+static int peermgtSendPing(struct s_peermgt *mgt, const struct s_nodeid *tonodeid, const int topeerid) {
+	int outpeerid;
+	unsigned char pingbuf[peermgt_PINGBUF_SIZE];
+
+	outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid);
+
+	if(outpeerid > 0) {
+		cryptoRand(pingbuf, 64); // generate ping message
+		memcpy(mgt->rrmsg.msg, pingbuf, peermgt_PINGBUF_SIZE);
+		mgt->rrmsgpeerid = outpeerid;
+		mgt->rrmsgtype = packet_PLTYPE_PING;
+		mgt->rrmsg.len = peermgt_PINGBUF_SIZE;
+		return 1;
+	}
+
 	return 0;
 }
 
@@ -750,6 +902,8 @@ static int peermgtInit(struct s_peermgt *mgt) {
 	mgt->outmsg.len = 0;
 	mgt->outmsgbroadcast = 0;
 	mgt->outmsgbroadcastcount = 0;
+	mgt->rrmsg.len = 0;
+	mgt->rrmsgpeerid = 0;
 	mgt->fragoutpeerid = 0;
 	mgt->fragoutcount = 0;
 	mgt->fragoutsize = 0;
@@ -892,6 +1046,7 @@ static int peermgtCreate(struct s_peermgt *mgt, const int peer_slots, const int 
 																	mgt->remoteflags = remoteflags_mem;
 																	mgt->seq = seq_mem;
 																	mgt->lastconnect = tnow;
+																	mgt->rrmsg.msg = mgt->rrmsgbuf;
 																	if(peermgtInit(mgt)) {
 																		return 1;
 																	}

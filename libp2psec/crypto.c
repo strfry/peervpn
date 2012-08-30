@@ -255,20 +255,20 @@ static int cryptoEnc(struct s_crypto *ctx, unsigned char *enc_buf, const int enc
 	int cr_len;
 	int len;
 	
-	if(enc_len < (hdr_len + crypto_MAXIVSIZE + dec_len)) return 0;
-	if(iv_len > crypto_MAXIVSIZE) return 0;
+	if(enc_len < (hdr_len + crypto_MAXIVSIZE + dec_len)) { return 0; }
+	if(iv_len > crypto_MAXIVSIZE) { return 0; }
 	
 	memset(iv, 0, crypto_MAXIVSIZE);
 	cryptoRand(iv, iv_len);
 	memcpy(&enc_buf[hmac_len], iv, iv_len);
 	
-	if(!EVP_EncryptInit_ex(&ctx->enc_ctx, NULL, NULL, NULL, iv)) return 0;
-	if(!EVP_EncryptUpdate(&ctx->enc_ctx, &enc_buf[(hdr_len)], &len, dec_buf, dec_len)) return 0;
+	if(!EVP_EncryptInit_ex(&ctx->enc_ctx, NULL, NULL, NULL, iv)) { return 0; }
+	if(!EVP_EncryptUpdate(&ctx->enc_ctx, &enc_buf[(hdr_len)], &len, dec_buf, dec_len)) { return 0; }
 	cr_len = len;
-	if(!EVP_EncryptFinal(&ctx->enc_ctx, &enc_buf[(hdr_len + cr_len)], &len)) return 0;
+	if(!EVP_EncryptFinal(&ctx->enc_ctx, &enc_buf[(hdr_len + cr_len)], &len)) { return 0; }
 	cr_len += len;
 	
-	if(!cryptoHMAC(ctx, hmac, hmac_len, &enc_buf[hmac_len], (iv_len + cr_len))) return 0;
+	if(!cryptoHMAC(ctx, hmac, hmac_len, &enc_buf[hmac_len], (iv_len + cr_len))) { return 0; }
 	memcpy(enc_buf, hmac, hmac_len);
 	
 	return (hdr_len + cr_len);
@@ -283,20 +283,20 @@ static int cryptoDec(struct s_crypto *ctx, unsigned char *dec_buf, const int dec
 	int cr_len;
 	int len;
 
-	if(iv_len > crypto_MAXIVSIZE) return 0;
-	if(enc_len < hdr_len) return 0;
-	if(dec_len < (enc_len + crypto_MAXIVSIZE - hmac_len - iv_len)) return 0;
+	if(iv_len > crypto_MAXIVSIZE) { return 0; }
+	if(enc_len < hdr_len) { return 0; }
+	if(dec_len < enc_len) { return 0; }
 
-	if(!cryptoHMAC(ctx, hmac, hmac_len, &enc_buf[hmac_len], (enc_len - hmac_len))) return 0;
-	if(memcmp(hmac, enc_buf, hmac_len) != 0) return 0;
+	if(!cryptoHMAC(ctx, hmac, hmac_len, &enc_buf[hmac_len], (enc_len - hmac_len))) { return 0; }
+	if(memcmp(hmac, enc_buf, hmac_len) != 0) { return 0; }
 
 	memset(iv, 0, crypto_MAXIVSIZE);
 	memcpy(iv, &enc_buf[hmac_len], iv_len);
 
-	if(!EVP_DecryptInit_ex(&ctx->dec_ctx, NULL, NULL, NULL, iv)) return 0;
-	if(!EVP_DecryptUpdate(&ctx->dec_ctx, dec_buf, &len, &enc_buf[hdr_len], (enc_len - hdr_len))) return 0;
+	if(!EVP_DecryptInit_ex(&ctx->dec_ctx, NULL, NULL, NULL, iv)) { return 0; }
+	if(!EVP_DecryptUpdate(&ctx->dec_ctx, dec_buf, &len, &enc_buf[hdr_len], (enc_len - hdr_len))) { return 0; }
 	cr_len = len;
-	if(!EVP_DecryptFinal(&ctx->dec_ctx, &dec_buf[cr_len], &len)) return 0;	
+	if(!EVP_DecryptFinal(&ctx->dec_ctx, &dec_buf[cr_len], &len)) { return 0; }
 	cr_len += len;
 	
 	return cr_len;
