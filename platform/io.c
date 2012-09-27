@@ -21,12 +21,14 @@
 #define F_IO_C
 
 
-#if defined(__FreeBSD__)
+#if defined(__FreeBSD__) || defined(__APPLE__)
 #define IO_BSD
 #elif defined(WIN32)
 #define IO_WINDOWS
-#else
+#elif defined(__linux__)
 #define IO_LINUX
+#else
+#error Unknown platform
 #endif
 
 
