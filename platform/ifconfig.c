@@ -26,13 +26,14 @@
 #include <stdlib.h>
 
 
-#if defined(__FreeBSD__) || defined(__APPLE__)
+#if defined(__FreeBSD__)
+#define IFCONFIG_BSD
+#elif defined(__APPLE__)
 #define IFCONFIG_BSD
 #elif defined(WIN32)
 #define IFCONFIG_WINDOWS
-#elif defined(__linux__)
+#else
 #define IFCONFIG_LINUX
-#else Unknown platform
 #endif
 
 

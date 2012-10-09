@@ -21,14 +21,15 @@
 #define F_IO_C
 
 
-#if defined(__FreeBSD__) || defined(__APPLE__)
+#if defined(__FreeBSD__)
 #define IO_BSD
+#elif defined(__APPLE__)
+#define IO_BSD
+#define IO_USE_SELECT
 #elif defined(WIN32)
 #define IO_WINDOWS
-#elif defined(__linux__)
-#define IO_LINUX
 #else
-#error Unknown platform
+#define IO_LINUX
 #endif
 
 
@@ -56,6 +57,10 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/time.h>
+#ifdef IO_USE_SELECT
+#include <sys/select.h>
+#endif
 #include <net/if.h>
 #include <netinet/in.h>
 #endif
@@ -88,10 +93,6 @@ struct s_io_state {
 	struct s_io_state_fd fd[IO_FDID_COUNT];
 	HANDLE handle[IO_FDID_COUNT];
 #else
-#if defined(__APPLE__)
-	fd_set fdset;
-	int highdesc;
-#endif
 	struct pollfd fd[IO_FDID_COUNT];
 #endif
 };
@@ -351,23 +352,15 @@ static int ioOpenTap(struct s_io_state *iostate, char *tapname, const char *reqn
 
 	if(req_len > 0) {
 		strncpy(&file[5], reqname, 255);
-#ifdef __APPLE__
-                tapfd = open(file, O_RDWR);
-                fcntl(tapfd, F_SETFL, O_NONBLOCK); // fcntl is needed, open(O_NONBLOCK) won't work
-#else
-                tapfd = open(file, O_RDWR | O_NONBLOCK);
-#endif
+		tapfd = open(file, O_RDWR);
+		fcntl(tapfd, F_SETFL, O_NONBLOCK);
 	}
 	else {
 		i = 0;
 		while((i < 1024) && (tapfd < 0)) {
 			snprintf(&file[5], 8, "tap%d", i);
-#ifdef __APPLE__
 			tapfd = open(file, O_RDWR);
-			fcntl(tapfd, F_SETFL, O_NONBLOCK); // fcntl is needed, open(O_NONBLOCK) won't work
-#else
-			tapfd = open(file, O_RDWR | O_NONBLOCK);
-#endif
+			fcntl(tapfd, F_SETFL, O_NONBLOCK);
 			i++;
 		}
 	}
@@ -900,35 +893,40 @@ static void ioWait(struct s_io_state *iostate, const int max_wait) {
 			}
 		}
 	}
-#elif defined(__APPLE__)
+#else
+#ifdef IO_USE_SELECT
 	fd_set fdset;
+	int fdh;
 	struct timeval seltimeout;
 	int i, fd;
 
-	seltimeout.tv_sec = 1;
+	if(max_wait > 1000) {
+		seltimeout.tv_sec = (max_wait / 1000);
+	}
+	else {
+		seltimeout.tv_sec = 1;
+	}
 	seltimeout.tv_usec = 0;
 
-	if (iostate->highdesc < 0)
-	{
-		FD_ZERO(&iostate->fdset);
-		for (i = 0; i < IO_FDID_COUNT; i++)
-		{
-			if ((fd = iostate->fd[i].fd) >= 0)
-			{
-				FD_SET(fd, &(iostate->fdset));
-				if (fd > iostate->highdesc)
-				{
-					iostate->highdesc = fd;
-				}
+	fdh = -1;
+	
+	FD_ZERO(&fdset);
+	for(i=0; i<IO_FDID_COUNT; i++) {
+		fd = iostate->fd[i].fd;
+		if((!(fd < 0)) && (iostate->fd[i].events == POLLIN)) {
+			FD_SET(fd, &fdset);
+			if(fdh < (fd+1)) {
+				fdh = (fd+1);
 			}
 		}
-		iostate->highdesc++;
 	}
-	FD_COPY(&(iostate->fdset), &fdset);
 
-	int ret = select(iostate->highdesc, &fdset, NULL, NULL, &seltimeout);
+	if(!(fdh < 0)) {
+		select(fdh, &fdset, NULL, NULL, &seltimeout);
+	}
 #else
 	poll(iostate->fd,IO_FDID_COUNT,max_wait);
+#endif
 #endif
 }
 
@@ -955,9 +953,6 @@ static void ioCreate(struct s_io_state *iostate) {
 #endif
 		iostate->fd[i].fd = -1;
 	}
-#ifdef __APPLE__
-	iostate->highdesc = -1;
-#endif
 }
 
 

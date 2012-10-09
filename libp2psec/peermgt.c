@@ -43,6 +43,10 @@
 #define peermgt_FRAGBUF_COUNT 64
 
 
+// Maximum packet decode recursion depth
+#define peermgt_DECODE_RECURSION_MAX_DEPTH 2
+
+
 // States.
 #define peermgt_STATE_INVALID 0
 #define peermgt_STATE_AUTHED 1
@@ -104,6 +108,7 @@ struct s_peermgt {
 	int *conntime;
 	int localflags;
 	unsigned char msgbuf[peermgt_MSGSIZE_MAX];
+	unsigned char relaymsgbuf[peermgt_MSGSIZE_MAX];
 	unsigned char rrmsgbuf[peermgt_MSGSIZE_MAX];
 	int msgsize;
 	int msgpeerid;
@@ -148,9 +153,25 @@ static int peermgtIsActiveID(struct s_peermgt *mgt, const int peerid) {
 }
 
 
-// Check if PeerID is active and remote (> 0)
+// Check if PeerID is active and remote (> 0).
 static int peermgtIsActiveRemoteID(struct s_peermgt *mgt, const int peerid) {
 	return ((peerid > 0) && (peermgtIsActiveID(mgt, peerid)));
+}
+
+
+// Check if PeerID is active, remote (> 0) and matches the specified connection time.
+static int peermgtIsActiveRemoteIDCT(struct s_peermgt *mgt, const int peerid, const int conntime) {
+	if(peermgtIsActiveRemoteID(mgt, peerid)) {
+		if(mgt->conntime[peerid] == conntime) {
+			return 1;
+		}
+		else {
+			return 0;
+		}
+	}
+	else {
+		return 0;
+	}
 }
 
 
@@ -320,7 +341,7 @@ static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermg
 
 	while((i < peerinfo_max) && (pos + peerinfo_size < data->pl_buf_size)) {
 		infoid = peermgtGetNextID(mgt);
-		if((infoid > 0) && (mgt->state[infoid] == peermgt_STATE_COMPLETE)) {
+		if((infoid > 0) && (mgt->state[infoid] == peermgt_STATE_COMPLETE) && (!peeraddrIsInternal(&mgt->remoteaddr[infoid]))) {
 			utilWriteInt32(infocid, infoid);
 			memcpy(&data->pl_buf[pos], infocid, packet_PEERID_SIZE);
 			peermgtGetNodeID(mgt, &infonid, infoid);
@@ -339,23 +360,8 @@ static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermg
 }
 
 
-// Generate generic packet.
-static void peermgtGenPacketGeneric(struct s_packet_data *data, const int type, const int options, const unsigned char *buf, const int len) {
-	if((len > 0) && (len < (data->pl_buf_size))) {
-		memcpy(data->pl_buf, buf, len);
-		data->pl_length = len;
-		data->pl_type = type;
-		data->pl_options = options;
-	}
-	else {
-		data->pl_length = 0;
-	}
-}
-
-
-// Get next peer manager packet. Returns length if successful.
-static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, const int pbuf_size, struct s_peeraddr *target) {
-	int tnow = utilGetTime();
+// Generate next peer manager packet. Returns length if successful.
+static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, const int pbuf_size, const int tnow, struct s_peeraddr *target) {
 	int used = mapGetKeyCount(&mgt->map);
 	int len;
 	int outlen;
@@ -461,12 +467,15 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 	if(outlen > 0) {
 		peerid = mgt->rrmsgpeerid;
 		mgt->rrmsg.len = 0;
-		if(peermgtIsActiveRemoteID(mgt, peerid)) {  // check if session is active
-			data.pl_buf = plbuf;
-			data.pl_buf_size = plbuf_size;
+		if((outlen < peermgt_MSGSIZE_MAX) && (peermgtIsActiveRemoteID(mgt, peerid))) {  // check if session is active
+			data.pl_buf = mgt->rrmsg.msg;
+			data.pl_buf_size = peermgt_MSGSIZE_MAX;
+			data.pl_length = outlen;
+			data.pl_type = mgt->rrmsgtype;
+			data.pl_options = 0;
 			data.peerid = mgt->remoteid[peerid];
 			data.seq = ++mgt->remoteseq[peerid];
-			peermgtGenPacketGeneric(&data, mgt->rrmsgtype, 0, mgt->rrmsg.msg, outlen);
+
 			len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
 			if(len > 0) {
 				mgt->lastsend[peerid] = tnow;
@@ -535,6 +544,63 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 	}
 	
 	return 0;
+}
+
+
+// Get next peer manager packet. Also encapsulates packets for relaying if necessary. Returns length if successful.
+static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, const int pbuf_size, struct s_peeraddr *target) {
+	int tnow;
+	int ready;
+	int len;
+	int outlen;
+	int relayid;
+	int relayct;
+	int relaypeerid;
+	struct s_packet_data data;
+	tnow = utilGetTime();
+	ready = 0;
+	outlen = peermgtGetNextPacketGen(mgt, pbuf, pbuf_size, tnow, target);
+	while((outlen > 0) && (ready == 0)) {
+		if(!peeraddrIsInternal(target)) {
+			// address is external, packet is ready for sending
+			ready = 1;
+		}
+		else {
+			if(((packet_PEERID_SIZE + outlen) < peermgt_MSGSIZE_MAX) && (peeraddrGetIndirect(target, &relayid, &relayct, &relaypeerid))) {
+				// address is indirect, encapsulate packet for relaying
+				if(peermgtIsActiveRemoteIDCT(mgt, relayid, relayct)) {
+					// generate relay-in packet
+					utilWriteInt32(&mgt->relaymsgbuf[0], relaypeerid);
+					memcpy(&mgt->relaymsgbuf[packet_PEERID_SIZE], pbuf, outlen);
+					data.pl_buf = mgt->relaymsgbuf;
+					data.pl_buf_size = packet_PEERID_SIZE + outlen;
+					data.peerid = mgt->remoteid[relayid];
+					data.seq = ++mgt->remoteseq[relayid];
+					data.pl_length = packet_PEERID_SIZE + outlen;
+					data.pl_type = packet_PLTYPE_RELAY_IN;
+					data.pl_options = 0;
+					
+					// encode relay-in packet
+					len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[relayid]);
+					if(len > 0) {
+						mgt->lastsend[relayid] = tnow;
+						*target = mgt->remoteaddr[relayid];
+						outlen = len;
+					}
+					else {
+						outlen = 0;
+					}
+				}
+				else {
+					outlen = 0;
+				}
+			}
+			else {
+				outlen = 0;
+			}
+		}
+	}
+	return outlen;
 }
 
 
@@ -672,14 +738,6 @@ static int peermgtDecodePacketRelayIn(struct s_peermgt *mgt, const struct s_pack
 }
 
 
-// Decode relay-out packet
-static int peermgtDecodePacketRelayOut(struct s_peermgt *mgt, const struct s_packet_data *data) {
-	// not implemented yet
-	
-	return 0;
-}
-
-
 // Decode fragmented packet
 static int peermgtDecodeUserdataFragment(struct s_peermgt *mgt, struct s_packet_data *data) {
 	int fragcount = (data->pl_options >> 4);
@@ -708,13 +766,14 @@ static int peermgtDecodeUserdataFragment(struct s_peermgt *mgt, struct s_packet_
 }
 
 
-// Decode input packet.
-static int peermgtDecodePacket(struct s_peermgt *mgt, const unsigned char *packet, const int packet_len, const struct s_peeraddr *source_addr) {
-	int tnow = utilGetTime();
+// Decode input packet recursively. Decapsulates relayed packets if necessary.
+static int peermgtDecodePacketRecursive(struct s_peermgt *mgt, const unsigned char *packet, const int packet_len, const struct s_peeraddr *source_addr, const int tnow, const int depth) {
+	int ret;
 	int peerid;
-	int ret = 0;
 	struct s_packet_data data = { .pl_buf_size = peermgt_MSGSIZE_MAX, .pl_buf = mgt->msgbuf };
-	if(packet_len > (packet_PEERID_SIZE + packet_HMAC_SIZE)) {
+	struct s_peeraddr indirect_addr;
+	ret = 0;
+	if(packet_len > (packet_PEERID_SIZE + packet_HMAC_SIZE) && (depth < peermgt_DECODE_RECURSION_MAX_DEPTH)) {
 		peerid = packetGetPeerID(packet);
 		if(peermgtIsActiveID(mgt, peerid)) {
 			if(peerid > 0) {
@@ -763,13 +822,17 @@ static int peermgtDecodePacket(struct s_peermgt *mgt, const unsigned char *packe
 								}
 								break;
 							case packet_PLTYPE_RELAY_OUT:
-								ret = peermgtDecodePacketRelayOut(mgt, &data);
+								if(data.pl_length > packet_PEERID_SIZE) {
+									memcpy(mgt->relaymsgbuf, &data.pl_buf[4], (data.pl_length - packet_PEERID_SIZE)); 
+									peeraddrSetIndirect(&indirect_addr, peerid, mgt->conntime[peerid], utilReadInt32(&data.pl_buf[0])); // generate indirect PeerAddr
+									ret = peermgtDecodePacketRecursive(mgt, mgt->relaymsgbuf, (data.pl_length - packet_PEERID_SIZE), &indirect_addr, tnow, (depth + 1)); // decode decapsulated packet
+								}
 								break;
 							default:
 								ret = 0;
 								break;
 						}
-						if(ret) {
+						if(ret > 0) {
 							mgt->lastrecv[peerid] = tnow;
 							mgt->remoteaddr[peerid] = *source_addr;
 							return 1;
@@ -791,6 +854,14 @@ static int peermgtDecodePacket(struct s_peermgt *mgt, const unsigned char *packe
 		}
 	}
 	return 0;
+}
+
+
+// Decode input packet. Returns 1 on success.
+static int peermgtDecodePacket(struct s_peermgt *mgt, const unsigned char *packet, const int packet_len, const struct s_peeraddr *source_addr) {
+	int tnow;
+	tnow = utilGetTime();
+	return peermgtDecodePacketRecursive(mgt, packet, packet_len, source_addr, tnow, 0);
 }
 
 

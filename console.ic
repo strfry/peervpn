@@ -33,7 +33,8 @@ static void decodeConsole(char *cmd, int cmdlen) {
 	char pb[1024];
 	char pc[1024];
 	int i, j;
-	unsigned char new_peeraddr[peeraddr_SIZE];
+	struct s_peeraddr new_peeraddr;
+	
 	pa[0] = '\0';
 	pb[0] = '\0';
 	pc[0] = '\0';
@@ -44,9 +45,9 @@ static void decodeConsole(char *cmd, int cmdlen) {
 	}
 	if(pa[0] == 'I' || pa[0] == 'i') {
 		// INSERTPEER <address>
-		if(ioGetUDPAddress(&iostate, new_peeraddr, pb, pc)) {
-			if(p2psecConnect(g_p2psec, new_peeraddr)) {
-				utilByteArrayToHexstring(text, 4096, new_peeraddr, peeraddr_SIZE);
+		if(ioGetUDPAddress(&iostate, new_peeraddr.addr, pb, pc)) {
+			if(p2psecConnect(g_p2psec, new_peeraddr.addr)) {
+				utilByteArrayToHexstring(text, 4096, new_peeraddr.addr, peeraddr_SIZE);
 				printf("connecting to %s...\n", text);
 			}
 		}
@@ -60,11 +61,18 @@ static void decodeConsole(char *cmd, int cmdlen) {
 		peermgtSendPing(&g_p2psec->mgt, NULL, i);
 	}
 	if(pa[0] == 'R' || pa[0] == 'r') {
-		// RELAYPING <relayid> <peerid>
+		// RELAYEDINSERTPEER <relayid> <relaypeerid>
 		sscanf(pb,"%d",&i);
 		sscanf(pc,"%d",&j);
-		peermgtSendPing(&g_p2psec->mgt, NULL, i);
-		utilWriteInt32(g_p2psec->mgt.rrmsg.msg, j);
-		g_p2psec->mgt.rrmsgtype = packet_PLTYPE_RELAY_IN;
+		if(peermgtIsActiveRemoteID(&g_p2psec->mgt, i)) {
+			peeraddrSetIndirect(&new_peeraddr, i, g_p2psec->mgt.conntime[i], j);
+			if(p2psecConnect(g_p2psec, new_peeraddr.addr)) {
+				utilByteArrayToHexstring(text, 4096, new_peeraddr.addr, peeraddr_SIZE);
+				printf("connecting to %s...\n", text);
+			}
+		}
+		else {
+			printf("could not get peer address.\n");
+		}
 	}
 }

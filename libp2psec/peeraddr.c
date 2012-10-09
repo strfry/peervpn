@@ -21,14 +21,82 @@
 #define F_PEERADDR_C
 
 
+#include "util.c"
+
+
+// Internal address types.
+#define peeraddr_INTERNAL_INDIRECT 1
+
+
 // PeerAddr size in bytes.
 #define peeraddr_SIZE 24
+
+
+// Constraints.
+#if peeraddr_SIZE != 24
+#error invalid peeraddr_SIZE
+#endif
 
 
 // The PeerAddr structure.
 struct s_peeraddr {
 	unsigned char addr[peeraddr_SIZE];
 };
+
+
+// Returns true if PeerAddr is internal.
+static int peeraddrIsInternal(struct s_peeraddr *peeraddr) {
+	int i;
+	i = utilReadInt32(&peeraddr->addr[0]);
+	if(i == 0) {
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+
+// Returns type of internal PeerAddr or -1 if it is not internal.
+static int peeraddrGetInternalType(struct s_peeraddr *peeraddr) {
+	if(peeraddrIsInternal(peeraddr)) {
+		return utilReadInt32(&peeraddr->addr[4]);
+	}
+	else {
+		return -1;
+	}
+}
+
+
+// Get indirect PeerAddr attributes. Returns 1 on success or 0 if the PeerAddr is not indirect.
+static int peeraddrGetIndirect(struct s_peeraddr *peeraddr, int *relayid, int *relayct, int *peerid) {
+	if(peeraddrGetInternalType(peeraddr) == peeraddr_INTERNAL_INDIRECT) {
+		if(relayid != NULL) {
+			*relayid = utilReadInt32(&peeraddr->addr[8]);
+		}
+		if(relayct != NULL) {
+			*relayct = utilReadInt32(&peeraddr->addr[12]);
+		}
+		if(peerid != NULL) {
+			*peerid = utilReadInt32(&peeraddr->addr[16]);
+		}
+		return 1;
+	}
+	else {
+		return 0;
+	}
+}
+
+
+// Construct indirect PeerAddr.
+static void peeraddrSetIndirect(struct s_peeraddr *peeraddr, const int relayid, const int relayct, const int peerid) {
+	utilWriteInt32(&peeraddr->addr[0], 0);
+	utilWriteInt32(&peeraddr->addr[4], peeraddr_INTERNAL_INDIRECT);
+	utilWriteInt32(&peeraddr->addr[8], relayid);
+	utilWriteInt32(&peeraddr->addr[12], relayct);
+	utilWriteInt32(&peeraddr->addr[16], peerid);
+	utilWriteInt32(&peeraddr->addr[20], 0);
+}
 
 
 #endif // F_PEERADDR_C
