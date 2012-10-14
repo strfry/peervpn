@@ -56,9 +56,8 @@ static void decodeConsole(char *cmd, int cmdlen) {
 		}
 	}
 	if(pa[0] == 'P' || pa[0] == 'p') {
-		// PING <peerid>
-		sscanf(pb,"%d",&i);
-		peermgtSendPing(&g_p2psec->mgt, NULL, i);
+		// PEERTABLE
+		printActivePeerTable();
 	}
 	if(pa[0] == 'R' || pa[0] == 'r') {
 		// RELAYEDINSERTPEER <relayid> <relaypeerid>

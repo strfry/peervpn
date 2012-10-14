@@ -24,6 +24,7 @@
 #include "map.c"
 #include "peeraddr.c"
 #include "nodeid.c"
+#include "peeraddr.c"
 #include "util.c"
 
 
@@ -33,6 +34,9 @@ struct s_nodedb_data {
 	int lastseen;
 	int lastconnect;
 	int lastconntry;
+	int relayid;
+	int relayct;
+	int relaypeerid;
 };
 
 
@@ -51,7 +55,7 @@ static void nodedbInit(struct s_nodedb *db) {
 
 
 // Update NodeDB entry.
-static void nodedbUpdate(struct s_nodedb *db, struct s_nodeid *nodeid, struct s_peeraddr *addr, const int update_lastseen, const int update_lastconnect, const int update_lastconntry) {
+static void nodedbUpdate(struct s_nodedb *db, struct s_nodeid *nodeid, struct s_peeraddr *addr, const int update_lastseen, const int update_lastconnect, const int update_lastconntry, const int relayid, const int relayct, const int relaypeerid) {
 	int tnow = utilGetTime();
 	int id;
 	struct s_nodedb_data *dbdata;
@@ -61,6 +65,9 @@ static void nodedbUpdate(struct s_nodedb *db, struct s_nodeid *nodeid, struct s_
 		newdata.lastseen = 0;
 		newdata.lastconnect = 0;
 		newdata.lastconntry = 0;
+		newdata.relayid = 0;
+		newdata.relayct = 0;
+		newdata.relaypeerid = 0;
 		id = mapGetKeyID(&db->map, nodeid->id);
 		if(!(id < 0)) {
 			dbdata = mapGetValueByID(&db->map, id);
@@ -78,6 +85,16 @@ static void nodedbUpdate(struct s_nodedb *db, struct s_nodeid *nodeid, struct s_
 		if(update_lastconntry > 0) {
 			newdata.lastconntry = tnow;
 		}
+		if(relayid > 0) {
+			newdata.relayid = relayid;
+			newdata.relayct = relayct;
+			newdata.relaypeerid = relaypeerid;
+		}
+		else { if(relayid < 0) {
+			newdata.relayid = 0;
+			newdata.relayct = 0;
+			newdata.relaypeerid = 0;
+		} }
 		mapSet(&db->map, nodeid->id, &newdata);
 	}
 }
@@ -112,9 +129,27 @@ static struct s_nodeid *nodedbGetNodeID(struct s_nodedb *db, const int db_id) {
 
 
 // Returns node address of specified NodeDB ID.
-static struct s_peeraddr *nodedbGetNodeAddress(struct s_nodedb *db, const int db_id) {
+static struct s_peeraddr nodedbGetNodeAddress(struct s_nodedb *db, const int db_id) {
+	struct s_peeraddr addr;
 	struct s_nodedb_data *dbdata = mapGetValueByID(&db->map, db_id);
-	return &dbdata->lastaddr;
+	addr = dbdata->lastaddr;
+	return addr;
+}
+
+
+// Returns indirect node address of specified NodeDB ID. Returns the zero address if no indirect address exists.
+static struct s_peeraddr nodedbGetIndirectNodeAddress(struct s_nodedb *db, const int db_id) {
+	struct s_peeraddr addr;
+	struct s_nodedb_data *dbdata = mapGetValueByID(&db->map, db_id);
+
+	if(dbdata->relayid > 0) {
+		peeraddrSetIndirect(&addr, dbdata->relayid, dbdata->relayct, dbdata->relaypeerid);
+	}
+	else {
+		peeraddrZero(&addr);
+	}
+
+	return addr;
 }
 
 

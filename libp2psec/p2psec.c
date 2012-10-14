@@ -245,8 +245,8 @@ void p2psecDisableRelay(P2PSEC_CTX *p2psec) {
 int p2psecLoadDefaults(P2PSEC_CTX *p2psec) {
 	if(!p2psecLoadDH(p2psec)) return 0;
 	p2psecSetFlag(p2psec, (~(0)), 0);
-	p2psecSetMaxConnectedPeers(p2psec, 512);
-	p2psecSetAuthSlotCount(p2psec, 16);
+	p2psecSetMaxConnectedPeers(p2psec, 256);
+	p2psecSetAuthSlotCount(p2psec, 32);
 	p2psecDisableLoopback(p2psec);
 	p2psecEnableFastauth(p2psec);
 	p2psecDisableFragmentation(p2psec);
@@ -296,7 +296,7 @@ void p2psecStatus(P2PSEC_CTX *p2psec, char *status_report, const int status_repo
 int p2psecConnect(P2PSEC_CTX *p2psec, const unsigned char *destination_addr) {
 	struct s_peeraddr addr;
 	memcpy(addr.addr, destination_addr, peeraddr_SIZE);
-	return peermgtConnect(&p2psec->mgt, &addr);
+	return peermgtConnect(&p2psec->mgt, addr);
 }
 
 

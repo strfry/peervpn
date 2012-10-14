@@ -119,6 +119,8 @@ struct s_peermgt {
 	struct s_msg rrmsg;
 	int rrmsgpeerid;
 	int rrmsgtype;
+	int rrmsgusetargetaddr;
+	struct s_peeraddr rrmsgtargetaddr;
 	int loopback;
 	int fragmentation;
 	int fragoutpeerid;
@@ -163,6 +165,24 @@ static int peermgtIsActiveRemoteID(struct s_peermgt *mgt, const int peerid) {
 static int peermgtIsActiveRemoteIDCT(struct s_peermgt *mgt, const int peerid, const int conntime) {
 	if(peermgtIsActiveRemoteID(mgt, peerid)) {
 		if(mgt->conntime[peerid] == conntime) {
+			return 1;
+		}
+		else {
+			return 0;
+		}
+	}
+	else {
+		return 0;
+	}
+}
+
+
+// Check if indirect PeerAddr is valid.
+static int peermgtIsValidIndirectPeerAddr(struct s_peermgt *mgt, const struct s_peeraddr *addr) {
+	int relayid;
+	int relayct;
+	if(peeraddrGetIndirect(addr, &relayid, &relayct, NULL)) {
+		if(peermgtIsActiveRemoteIDCT(mgt, relayid, relayct)) {
 			return 1;
 		}
 		else {
@@ -273,8 +293,31 @@ static void peermgtDeleteID(struct s_peermgt *mgt, const int peerid) {
 
 
 // Connect to a new peer.
-static int peermgtConnect(struct s_peermgt *mgt, const struct s_peeraddr *remote_addr) {
-	return authmgtStart(&mgt->authmgt, remote_addr);
+static int peermgtConnect(struct s_peermgt *mgt, const struct s_peeraddr remote_addr) {
+	int addr_ok;
+	addr_ok = 0;
+	if(peeraddrIsInternal(&remote_addr)) {
+		if(peermgtIsValidIndirectPeerAddr(mgt, &remote_addr)) {
+			addr_ok = 1;
+		}
+		else {
+			addr_ok = 0;
+		}
+	}
+	else {
+		addr_ok = 1;
+	}
+	if(addr_ok) {
+		if(authmgtStart(&mgt->authmgt, &remote_addr)) {
+			return 1;
+		}
+		else {
+			return 0;
+		}
+	}
+	else {
+		return 0;
+	}
 }
 
 
@@ -360,6 +403,28 @@ static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermg
 }
 
 
+// Send ping to PeerAddr. Return 1 if successful.
+static int peermgtSendPingToAddr(struct s_peermgt *mgt, const struct s_nodeid *tonodeid, const int topeerid, const struct s_peeraddr peeraddr) {
+	int outpeerid;
+	unsigned char pingbuf[peermgt_PINGBUF_SIZE];
+
+	outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid);
+
+	if(outpeerid > 0) {
+		cryptoRand(pingbuf, 64); // generate ping message
+		memcpy(mgt->rrmsg.msg, pingbuf, peermgt_PINGBUF_SIZE);
+		mgt->rrmsgpeerid = outpeerid;
+		mgt->rrmsgtype = packet_PLTYPE_PING;
+		mgt->rrmsg.len = peermgt_PINGBUF_SIZE;
+		mgt->rrmsgusetargetaddr = 1;
+		mgt->rrmsgtargetaddr = peeraddr;
+		return 1;
+	}
+
+	return 0;
+}
+
+
 // Generate next peer manager packet. Returns length if successful.
 static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, const int pbuf_size, const int tnow, struct s_peeraddr *target) {
 	int used = mapGetKeyCount(&mgt->map);
@@ -367,6 +432,8 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 	int outlen;
 	int fragoutlen;
 	int peerid;
+	int relayid;
+	int usetargetaddr;
 	int i;
 	int fragcount;
 	int fragpos;
@@ -466,7 +533,9 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 	outlen = mgt->rrmsg.len;
 	if(outlen > 0) {
 		peerid = mgt->rrmsgpeerid;
+		usetargetaddr = mgt->rrmsgusetargetaddr;
 		mgt->rrmsg.len = 0;
+		mgt->rrmsgusetargetaddr = 0;
 		if((outlen < peermgt_MSGSIZE_MAX) && (peermgtIsActiveRemoteID(mgt, peerid))) {  // check if session is active
 			data.pl_buf = mgt->rrmsg.msg;
 			data.pl_buf_size = peermgt_MSGSIZE_MAX;
@@ -478,8 +547,13 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 
 			len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
 			if(len > 0) {
-				mgt->lastsend[peerid] = tnow;
-				*target = mgt->remoteaddr[peerid];
+				if(usetargetaddr > 0) {
+					*target = mgt->rrmsgtargetaddr;
+				}
+				else {
+					mgt->lastsend[peerid] = tnow;
+					*target = mgt->remoteaddr[peerid];
+				}
 				return len;
 			}
 		}
@@ -531,12 +605,28 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 	}
 	
 	// connect new peer
-	if((authmgtUsedSlotCount(&mgt->authmgt) < (authmgtSlotCount(&mgt->authmgt) / 2)) && ((tnow - mgt->lastconnect) > peermgt_NEWCONNECT_INTERVAL)) {
+	if((authmgtUsedSlotCount(&mgt->authmgt) < ((authmgtSlotCount(&mgt->authmgt) / 4) * 3)) && ((tnow - mgt->lastconnect) > peermgt_NEWCONNECT_INTERVAL)) {
 		i = nodedbNextID(&mgt->nodedb, peermgt_NEWCONNECT_MAX_AGE, 0, 1);
 		if(!(i < 0)) {
-			if(peermgtGetID(mgt, nodedbGetNodeID(&mgt->nodedb, i)) < 0) { // check if node is already connected
+			peerid = peermgtGetID(mgt, nodedbGetNodeID(&mgt->nodedb, i));
+			if(peerid < 0) { // check if node is already connected
+				// node is not connected yet
 				if(peermgtConnect(mgt, nodedbGetNodeAddress(&mgt->nodedb, i))) { // try to connect
-					nodedbUpdate(&mgt->nodedb, nodedbGetNodeID(&mgt->nodedb, i), NULL, 0, 0, 1);
+					if(peermgtConnect(mgt, nodedbGetIndirectNodeAddress(&mgt->nodedb, i))) { // try to connect via relay
+						relayid = 0; // on success, dont change indirect entry in NodeDB
+					}
+					else {
+						relayid = -1; // on failure, delete indirect entry in NodeDB
+					}
+					nodedbUpdate(&mgt->nodedb, nodedbGetNodeID(&mgt->nodedb, i), NULL, 0, 0, 1, relayid, 0, 0);
+					mgt->lastconnect = tnow;
+				}
+			}
+			else {
+				// node is already connected
+				if(peeraddrIsInternal(&mgt->remoteaddr[peerid])) {
+					peermgtSendPingToAddr(mgt, NULL, peerid, nodedbGetNodeAddress(&mgt->nodedb, i)); // try to switch peer to a direct connection
+					nodedbUpdate(&mgt->nodedb, nodedbGetNodeID(&mgt->nodedb, i), NULL, 0, 0, 1, 0, 0, 0);
 					mgt->lastconnect = tnow;
 				}
 			}
@@ -556,36 +646,43 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 	int relayid;
 	int relayct;
 	int relaypeerid;
+	int depth;
 	struct s_packet_data data;
 	tnow = utilGetTime();
+	depth = 0;
 	ready = 0;
 	outlen = peermgtGetNextPacketGen(mgt, pbuf, pbuf_size, tnow, target);
 	while((outlen > 0) && (ready == 0)) {
-		if(!peeraddrIsInternal(target)) {
-			// address is external, packet is ready for sending
-			ready = 1;
-		}
-		else {
-			if(((packet_PEERID_SIZE + outlen) < peermgt_MSGSIZE_MAX) && (peeraddrGetIndirect(target, &relayid, &relayct, &relaypeerid))) {
-				// address is indirect, encapsulate packet for relaying
-				if(peermgtIsActiveRemoteIDCT(mgt, relayid, relayct)) {
-					// generate relay-in packet
-					utilWriteInt32(&mgt->relaymsgbuf[0], relaypeerid);
-					memcpy(&mgt->relaymsgbuf[packet_PEERID_SIZE], pbuf, outlen);
-					data.pl_buf = mgt->relaymsgbuf;
-					data.pl_buf_size = packet_PEERID_SIZE + outlen;
-					data.peerid = mgt->remoteid[relayid];
-					data.seq = ++mgt->remoteseq[relayid];
-					data.pl_length = packet_PEERID_SIZE + outlen;
-					data.pl_type = packet_PLTYPE_RELAY_IN;
-					data.pl_options = 0;
+		if(depth < peermgt_DECODE_RECURSION_MAX_DEPTH) { // limit encapsulation depth
+			if(!peeraddrIsInternal(target)) {
+				// address is external, packet is ready for sending
+				ready = 1;
+			}
+			else {
+				if(((packet_PEERID_SIZE + outlen) < peermgt_MSGSIZE_MAX) && (peeraddrGetIndirect(target, &relayid, &relayct, &relaypeerid))) {
+					// address is indirect, encapsulate packet for relaying
+					if(peermgtIsActiveRemoteIDCT(mgt, relayid, relayct)) {
+						// generate relay-in packet
+						utilWriteInt32(&mgt->relaymsgbuf[0], relaypeerid);
+						memcpy(&mgt->relaymsgbuf[packet_PEERID_SIZE], pbuf, outlen);
+						data.pl_buf = mgt->relaymsgbuf;
+						data.pl_buf_size = packet_PEERID_SIZE + outlen;
+						data.peerid = mgt->remoteid[relayid];
+						data.seq = ++mgt->remoteseq[relayid];
+						data.pl_length = packet_PEERID_SIZE + outlen;
+						data.pl_type = packet_PLTYPE_RELAY_IN;
+						data.pl_options = 0;
 					
-					// encode relay-in packet
-					len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[relayid]);
-					if(len > 0) {
-						mgt->lastsend[relayid] = tnow;
-						*target = mgt->remoteaddr[relayid];
-						outlen = len;
+						// encode relay-in packet
+						len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[relayid]);
+						if(len > 0) {
+							mgt->lastsend[relayid] = tnow;
+							*target = mgt->remoteaddr[relayid];
+							outlen = len;
+						}
+						else {
+							outlen = 0;
+						}
 					}
 					else {
 						outlen = 0;
@@ -595,9 +692,10 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 					outlen = 0;
 				}
 			}
-			else {
-				outlen = 0;
-			}
+			depth++;
+		}
+		else {
+			outlen = 0;
 		}
 	}
 	return outlen;
@@ -623,6 +721,12 @@ static int peermgtDecodePacketAuth(struct s_peermgt *mgt, const struct s_packet_
 			else {
 				// Don't replace active existing session.
 				peerid = -1;
+				
+				// Upgrade indirect connection to a direct one
+				if((peeraddrIsInternal(&mgt->remoteaddr[dupid])) && (!peeraddrIsInternal(source_addr))) {
+					mgt->remoteaddr[dupid] = *source_addr;
+					peermgtSendPingToAddr(mgt, NULL, dupid, *source_addr); // send a ping using the new peer address
+				}
 			}
 			if(peerid > 0) {
 				// NodeID gets accepted here.
@@ -643,7 +747,9 @@ static int peermgtDecodePacketAuth(struct s_peermgt *mgt, const struct s_packet_
 				mgt->remoteflags[peerid] = remoteflags;
 				mgt->state[peerid] = peermgt_STATE_COMPLETE;
 				mgt->lastrecv[peerid] = tnow;
-				nodedbUpdate(&mgt->nodedb, &peer_nodeid, &mgt->remoteaddr[peerid], 1, 1, 0);
+				if(!peeraddrIsInternal(&mgt->remoteaddr[peerid])) { // do not pollute NodeDB with internal addresses
+					nodedbUpdate(&mgt->nodedb, &peer_nodeid, &mgt->remoteaddr[peerid], 1, 1, 0, 0, 0, 0);
+				}
 			}
 			authmgtFinishCompletedPeer(authmgt);
 		}
@@ -663,24 +769,45 @@ static int peermgtDecodePacketPeerinfo(struct s_peermgt *mgt, const struct s_pac
 	int peerinfo_count;
 	int localid;
 	int pos;
+	int relayid;
+	int relayct;
+	int relaypeerid;
 	int i;
 	int64_t r;
 	if(data->pl_length > 4) {
 		peerinfo_count = utilReadInt32(data->pl_buf);
 		if(peerinfo_count > 0 && (((peerinfo_count * peerinfo_size) + 4) <= data->pl_length)) {
+			if((peermgtGetRemoteFlag(mgt, data->peerid, peermgt_FLAG_RELAY)) && (!peeraddrIsInternal(&mgt->remoteaddr[data->peerid]))) {
+				// add indirect NodeDB entry
+				relayid = data->peerid;
+				relayct = mgt->conntime[relayid];
+			}
+			else {
+				// don't change indirect NodeDB entry
+				relayid = 0;
+				relayct = 0;
+			}
 			r = (abs(cryptoRand64()) % peerinfo_count); // randomly select a peer
 			for(i=0; i<peerinfo_count; i++) {
 				pos = (4 + (r * peerinfo_size));
+				relaypeerid = utilReadInt32(&data->pl_buf[pos]);
 				memcpy(nodeid.id, &data->pl_buf[(pos + (packet_PEERID_SIZE))], nodeid_SIZE);
 				memcpy(addr.addr, &data->pl_buf[(pos + (packet_PEERID_SIZE + nodeid_SIZE))], peeraddr_SIZE);
-				localid = peermgtGetID(mgt, &nodeid);
-				if(localid < 0) { // check if we are already connected to this NodeID
-					nodedbUpdate(&mgt->nodedb, &nodeid, &addr, 1, 0, 0);
-				}
-				else {
-					if(localid > 0) {
-						nodedbUpdate(&mgt->nodedb, &nodeid, &mgt->remoteaddr[localid], 1, 1, 0);
+				if(!peeraddrIsInternal(&addr)) { // only accept external PeerAddr
+					localid = peermgtGetID(mgt, &nodeid);
+					if(localid < 0) { // check if we are already connected to this NodeID
+						// not connected yet
+						nodedbUpdate(&mgt->nodedb, &nodeid, &addr, 1, 0, 0, relayid, relayct, relaypeerid);
 					}
+					else { if(localid > 0) {
+						// already connected
+						if(peeraddrIsInternal(&mgt->remoteaddr[localid])) {
+							nodedbUpdate(&mgt->nodedb, &nodeid, &addr, 1, 1, 0, relayid, relayct, relaypeerid);
+						}
+						else {
+							nodedbUpdate(&mgt->nodedb, &nodeid, NULL, 1, 1, 0, relayid, relayct, relaypeerid);
+						}
+					} }
 				}
 				r = ((r + 1) % peerinfo_count);
 			}
@@ -699,6 +826,7 @@ static int peermgtDecodePacketPing(struct s_peermgt *mgt, const struct s_packet_
 		mgt->rrmsgpeerid = data->peerid;
 		mgt->rrmsgtype = packet_PLTYPE_PONG;
 		mgt->rrmsg.len = peermgt_PINGBUF_SIZE;
+		mgt->rrmsgusetargetaddr = 0;
 		return 1;
 	}
 	return 0;
@@ -708,10 +836,9 @@ static int peermgtDecodePacketPing(struct s_peermgt *mgt, const struct s_packet_
 // Decode pong packet
 static int peermgtDecodePacketPong(struct s_peermgt *mgt, const struct s_packet_data *data) {
 	int len = data->pl_length;
-	unsigned char pingbuf[peermgt_PINGBUF_SIZE];
 	if(len == peermgt_PINGBUF_SIZE) {
-		// not implemented yet
-		memcpy(pingbuf, data->pl_buf, peermgt_PINGBUF_SIZE);
+		// content is not checked, any response is acceptable
+		return 1;
 	}
 	return 0;
 }
@@ -730,6 +857,7 @@ static int peermgtDecodePacketRelayIn(struct s_peermgt *mgt, const struct s_pack
 			mgt->rrmsgpeerid = targetpeerid;
 			mgt->rrmsgtype = packet_PLTYPE_RELAY_OUT;
 			mgt->rrmsg.len = len;
+			mgt->rrmsgusetargetaddr = 0;
 			return 1;
 		}
 	}
@@ -749,7 +877,7 @@ static int peermgtDecodeUserdataFragment(struct s_peermgt *mgt, struct s_packet_
 	if(!(id < 0)) {
 		len = dfragLength(&mgt->dfrag, id);
 		if(len > 0 && len <= data->pl_buf_size) {
-			memcpy(data->pl_buf, dfragGet(&mgt->dfrag, id), len); // temporary solution, should be replaced by a zero-copy method later
+			memcpy(data->pl_buf, dfragGet(&mgt->dfrag, id), len);
 			dfragClear(&mgt->dfrag, id);
 			data->pl_length = len;
 			return 1;
@@ -928,26 +1056,6 @@ static int peermgtSendBroadcastUserdata(struct s_peermgt *mgt, const struct s_ms
 }
 
 
-// Send ping. Return 1 if successful.
-static int peermgtSendPing(struct s_peermgt *mgt, const struct s_nodeid *tonodeid, const int topeerid) {
-	int outpeerid;
-	unsigned char pingbuf[peermgt_PINGBUF_SIZE];
-
-	outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid);
-
-	if(outpeerid > 0) {
-		cryptoRand(pingbuf, 64); // generate ping message
-		memcpy(mgt->rrmsg.msg, pingbuf, peermgt_PINGBUF_SIZE);
-		mgt->rrmsgpeerid = outpeerid;
-		mgt->rrmsgtype = packet_PLTYPE_PING;
-		mgt->rrmsg.len = peermgt_PINGBUF_SIZE;
-		return 1;
-	}
-
-	return 0;
-}
-
-
 // Set NetID from network name.
 static int peermgtSetNetID(struct s_peermgt *mgt, const char *netname, const int netname_len) {
 	return netidSet(&mgt->netid, netname, netname_len);
@@ -975,6 +1083,7 @@ static int peermgtInit(struct s_peermgt *mgt) {
 	mgt->outmsgbroadcastcount = 0;
 	mgt->rrmsg.len = 0;
 	mgt->rrmsgpeerid = 0;
+	mgt->rrmsgusetargetaddr = 0;
 	mgt->fragoutpeerid = 0;
 	mgt->fragoutcount = 0;
 	mgt->fragoutsize = 0;

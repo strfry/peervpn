@@ -45,7 +45,7 @@ struct s_peeraddr {
 
 
 // Returns true if PeerAddr is internal.
-static int peeraddrIsInternal(struct s_peeraddr *peeraddr) {
+static int peeraddrIsInternal(const struct s_peeraddr *peeraddr) {
 	int i;
 	i = utilReadInt32(&peeraddr->addr[0]);
 	if(i == 0) {
@@ -58,7 +58,7 @@ static int peeraddrIsInternal(struct s_peeraddr *peeraddr) {
 
 
 // Returns type of internal PeerAddr or -1 if it is not internal.
-static int peeraddrGetInternalType(struct s_peeraddr *peeraddr) {
+static int peeraddrGetInternalType(const struct s_peeraddr *peeraddr) {
 	if(peeraddrIsInternal(peeraddr)) {
 		return utilReadInt32(&peeraddr->addr[4]);
 	}
@@ -69,7 +69,7 @@ static int peeraddrGetInternalType(struct s_peeraddr *peeraddr) {
 
 
 // Get indirect PeerAddr attributes. Returns 1 on success or 0 if the PeerAddr is not indirect.
-static int peeraddrGetIndirect(struct s_peeraddr *peeraddr, int *relayid, int *relayct, int *peerid) {
+static int peeraddrGetIndirect(const struct s_peeraddr *peeraddr, int *relayid, int *relayct, int *peerid) {
 	if(peeraddrGetInternalType(peeraddr) == peeraddr_INTERNAL_INDIRECT) {
 		if(relayid != NULL) {
 			*relayid = utilReadInt32(&peeraddr->addr[8]);
@@ -96,6 +96,12 @@ static void peeraddrSetIndirect(struct s_peeraddr *peeraddr, const int relayid, 
 	utilWriteInt32(&peeraddr->addr[12], relayct);
 	utilWriteInt32(&peeraddr->addr[16], peerid);
 	utilWriteInt32(&peeraddr->addr[20], 0);
+}
+
+
+// Construct zero PeerAddr.
+static void peeraddrZero(struct s_peeraddr *peeraddr) {
+	memset(peeraddr->addr, 0, peeraddr_SIZE);
 }
 
 

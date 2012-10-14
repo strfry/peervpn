@@ -105,7 +105,7 @@ static int peermgtTestsuiteRun(struct s_peermgt_test *teststate) {
 				// all nodes connect to node 0
 				peermgtTestsuiteGetAddr(&addr, 0);
 				for(i=0; i<peermgtTestsuite_NODECOUNT; i++) if(i != 0) {
-					peermgtConnect(&teststate->peermgts[i], &addr);
+					peermgtConnect(&teststate->peermgts[i], addr);
 				}
 				break;
 			case 17:
@@ -151,7 +151,7 @@ static int peermgtTestsuiteRun(struct s_peermgt_test *teststate) {
 			case 103:
 				// reconnect node 3
 				peermgtTestsuiteGetAddr(&addr, 0);
-				peermgtConnect(&teststate->peermgts[3], &addr);
+				peermgtConnect(&teststate->peermgts[3], addr);
 			default:
 				break;
 		}
