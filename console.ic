@@ -64,7 +64,7 @@ static void decodeConsole(char *cmd, int cmdlen) {
 		sscanf(pb,"%d",&i);
 		sscanf(pc,"%d",&j);
 		if(peermgtIsActiveRemoteID(&g_p2psec->mgt, i)) {
-			peeraddrSetIndirect(&new_peeraddr, i, g_p2psec->mgt.conntime[i], j);
+			peeraddrSetIndirect(&new_peeraddr, i, g_p2psec->mgt.data[i].conntime, j);
 			if(p2psecConnect(g_p2psec, new_peeraddr.addr)) {
 				utilByteArrayToHexstring(text, 4096, new_peeraddr.addr, peeraddr_SIZE);
 				printf("connecting to %s...\n", text);

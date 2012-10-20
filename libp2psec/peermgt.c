@@ -56,6 +56,7 @@
 // Timeouts.
 #define peermgt_RECV_TIMEOUT 100
 #define peermgt_KEEPALIVE_INTERVAL 10
+#define peermgt_PEERINFO_INTERVAL 60
 #define peermgt_NEWCONNECT_INTERVAL 1
 #define peermgt_NEWCONNECT_MAX_AGE 604800
 
@@ -88,6 +89,20 @@
 #endif
 
 
+// The peer manager data structure.
+struct s_peermgt_data {
+	int conntime;
+	int lastrecv;
+	int lastsend;
+	int lastpeerinfo;
+	struct s_peeraddr remoteaddr;
+	int remoteflags;
+	int remoteid;
+	int64_t remoteseq;
+	struct s_seq_state seq;
+	int state;
+};
+
 // The peer manager structure.
 struct s_peermgt {
 	struct s_netid netid;
@@ -96,16 +111,8 @@ struct s_peermgt {
 	struct s_authmgt authmgt;
 	struct s_dfrag dfrag;
 	struct s_nodekey *nodekey;
+	struct s_peermgt_data *data;
 	struct s_crypto *ctx;
-	struct s_seq_state *seq;
-	struct s_peeraddr *remoteaddr;
-	int *remoteid;
-	int64_t *remoteseq;
-	int *remoteflags;
-	int *state;
-	int *lastrecv;
-	int *lastsend;
-	int *conntime;
 	int localflags;
 	unsigned char msgbuf[peermgt_MSGSIZE_MAX];
 	unsigned char relaymsgbuf[peermgt_MSGSIZE_MAX];
@@ -147,7 +154,7 @@ static int peermgtIsValidID(struct s_peermgt *mgt, const int peerid) {
 // Check if PeerID is active (ready to send/recv data).
 static int peermgtIsActiveID(struct s_peermgt *mgt, const int peerid) {
 	if(peermgtIsValidID(mgt, peerid)) {
-		if(mgt->state[peerid] == peermgt_STATE_COMPLETE) {
+		if(mgt->data[peerid].state == peermgt_STATE_COMPLETE) {
 			return 1;
 		}
 	}
@@ -164,7 +171,7 @@ static int peermgtIsActiveRemoteID(struct s_peermgt *mgt, const int peerid) {
 // Check if PeerID is active, remote (> 0) and matches the specified connection time.
 static int peermgtIsActiveRemoteIDCT(struct s_peermgt *mgt, const int peerid, const int conntime) {
 	if(peermgtIsActiveRemoteID(mgt, peerid)) {
-		if(mgt->conntime[peerid] == conntime) {
+		if(mgt->data[peerid].conntime == conntime) {
 			return 1;
 		}
 		else {
@@ -249,8 +256,8 @@ static int peermgtGetNodeID(struct s_peermgt *mgt, struct s_nodeid *nodeid, cons
 
 // Reset the data for an ID.
 static void peermgtResetID(struct s_peermgt *mgt, const int peerid) {
-	mgt->state[peerid] = peermgt_STATE_INVALID;
-	memset(mgt->remoteaddr[peerid].addr, 0, peeraddr_SIZE);
+	mgt->data[peerid].state = peermgt_STATE_INVALID;
+	memset(mgt->data[peerid].remoteaddr.addr, 0, peeraddr_SIZE);
 	cryptoSetKeysRandom(&mgt->ctx[peerid], 1);
 }
 
@@ -260,13 +267,14 @@ static int peermgtNew(struct s_peermgt *mgt, const struct s_nodeid *nodeid, cons
 	int tnow = utilGetTime();
 	int peerid = mapAddReturnID(&mgt->map, nodeid->id, &tnow);
 	if(!(peerid < 0)) {
-		mgt->state[peerid] = peermgt_STATE_AUTHED;
-		mgt->remoteaddr[peerid] = *addr;
-		mgt->conntime[peerid] = tnow;
-		mgt->lastrecv[peerid] = tnow;
-		mgt->lastsend[peerid] = tnow;
-		seqInit(&mgt->seq[peerid], cryptoRand64());
-		mgt->remoteflags[peerid] = 0;
+		mgt->data[peerid].state = peermgt_STATE_AUTHED;
+		mgt->data[peerid].remoteaddr = *addr;
+		mgt->data[peerid].conntime = tnow;
+		mgt->data[peerid].lastrecv = tnow;
+		mgt->data[peerid].lastsend = tnow;
+		mgt->data[peerid].lastpeerinfo = tnow;
+		seqInit(&mgt->data[peerid].seq, cryptoRand64());
+		mgt->data[peerid].remoteflags = 0;
 		return peerid;
 	}
 	return -1;
@@ -366,7 +374,7 @@ static int peermgtGetFlag(struct s_peermgt *mgt, const int flag) {
 // Get single remote flag.
 static int peermgtGetRemoteFlag(struct s_peermgt *mgt, const int peerid, const int flag) {
 	int f;
-	f = (mgt->remoteflags[peerid] & flag);
+	f = (mgt->data[peerid].remoteflags & flag);
 	return (f != 0);
 }
 
@@ -384,12 +392,12 @@ static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermg
 
 	while((i < peerinfo_max) && (pos + peerinfo_size < data->pl_buf_size)) {
 		infoid = peermgtGetNextID(mgt);
-		if((infoid > 0) && (mgt->state[infoid] == peermgt_STATE_COMPLETE) && (!peeraddrIsInternal(&mgt->remoteaddr[infoid]))) {
+		if((infoid > 0) && (mgt->data[infoid].state == peermgt_STATE_COMPLETE) && (!peeraddrIsInternal(&mgt->data[infoid].remoteaddr))) {
 			utilWriteInt32(infocid, infoid);
 			memcpy(&data->pl_buf[pos], infocid, packet_PEERID_SIZE);
 			peermgtGetNodeID(mgt, &infonid, infoid);
 			memcpy(&data->pl_buf[(pos + packet_PEERID_SIZE)], infonid.id, nodeid_SIZE);
-			memcpy(&data->pl_buf[(pos + packet_PEERID_SIZE + nodeid_SIZE)], &mgt->remoteaddr[infoid].addr, peeraddr_SIZE);
+			memcpy(&data->pl_buf[(pos + packet_PEERID_SIZE + nodeid_SIZE)], &mgt->data[infoid].remoteaddr.addr, peeraddr_SIZE);
 			pos = pos + peerinfo_size;
 			peerinfo_count++;
 		}
@@ -475,15 +483,15 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 					// generate userdata packet
 					data.pl_buf = mgt->outmsg.msg;
 					data.pl_buf_size = outlen;
-					data.peerid = mgt->remoteid[peerid];
-					data.seq = ++mgt->remoteseq[peerid];
+					data.peerid = mgt->data[peerid].remoteid;
+					data.seq = ++mgt->data[peerid].remoteseq;
 					data.pl_length = outlen;
 					data.pl_type = packet_PLTYPE_USERDATA;
 					data.pl_options = 0;
 					len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
 					if(len > 0) {
-						mgt->lastsend[peerid] = tnow;
-						*target = mgt->remoteaddr[peerid];
+						mgt->data[peerid].lastsend = tnow;
+						*target = mgt->data[peerid].remoteaddr;
 						return len;
 					}
 				}
@@ -511,15 +519,15 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 				data.pl_length = fragoutlen;
 				mgt->fragoutsize = 0;
 			}
-			data.peerid = mgt->remoteid[peerid];
-			data.seq = ++mgt->remoteseq[peerid];
+			data.peerid = mgt->data[peerid].remoteid;
+			data.seq = ++mgt->data[peerid].remoteseq;
 			data.pl_type = packet_PLTYPE_USERDATA_FRAGMENT;
 			data.pl_options = (fragcount << 4) | (fragpos);
 			len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
 			mgt->fragoutpos = (fragpos + 1);
 			if(len > 0) {
-				mgt->lastsend[peerid] = tnow;
-				*target = mgt->remoteaddr[peerid];
+				mgt->data[peerid].lastsend = tnow;
+				*target = mgt->data[peerid].remoteaddr;
 				return len;
 			}
 		}
@@ -542,8 +550,8 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 			data.pl_length = outlen;
 			data.pl_type = mgt->rrmsgtype;
 			data.pl_options = 0;
-			data.peerid = mgt->remoteid[peerid];
-			data.seq = ++mgt->remoteseq[peerid];
+			data.peerid = mgt->data[peerid].remoteid;
+			data.seq = ++mgt->data[peerid].remoteseq;
 
 			len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
 			if(len > 0) {
@@ -551,30 +559,31 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 					*target = mgt->rrmsgtargetaddr;
 				}
 				else {
-					mgt->lastsend[peerid] = tnow;
-					*target = mgt->remoteaddr[peerid];
+					mgt->data[peerid].lastsend = tnow;
+					*target = mgt->data[peerid].remoteaddr;
 				}
 				return len;
 			}
 		}
 	}
 
-	// send keepalive to peers
+	// send peerinfo to peers
 	for(i=0; i<used; i++) {
 		peerid = peermgtGetNextID(mgt);
 		if(peerid > 0) {
-			if((tnow - mgt->lastrecv[peerid]) < peermgt_RECV_TIMEOUT) { // check if session has expired
-				if(mgt->state[peerid] == peermgt_STATE_COMPLETE) {  // check if session is active
-					if((tnow - mgt->lastsend[peerid]) > peermgt_KEEPALIVE_INTERVAL) { // check if session needs keepalive packet
+			if((tnow - mgt->data[peerid].lastrecv) < peermgt_RECV_TIMEOUT) { // check if session has expired
+				if(mgt->data[peerid].state == peermgt_STATE_COMPLETE) {  // check if session is active
+					if(((tnow - mgt->data[peerid].lastsend) > peermgt_KEEPALIVE_INTERVAL) || ((tnow - mgt->data[peerid].lastpeerinfo) > peermgt_PEERINFO_INTERVAL)) { // check if we should send peerinfo packet
 						data.pl_buf = plbuf;
 						data.pl_buf_size = plbuf_size;
-						data.peerid = mgt->remoteid[peerid];
-						data.seq = ++mgt->remoteseq[peerid];
+						data.peerid = mgt->data[peerid].remoteid;
+						data.seq = ++mgt->data[peerid].remoteseq;
 						peermgtGenPacketPeerinfo(&data, mgt);
 						len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
 						if(len > 0) {
-							mgt->lastsend[peerid] = tnow;
-							*target = mgt->remoteaddr[peerid];
+							mgt->data[peerid].lastsend = tnow;
+							mgt->data[peerid].lastpeerinfo = tnow;
+							*target = mgt->data[peerid].remoteaddr;
 							return len;
 						}
 					}
@@ -598,7 +607,7 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 			data.pl_options = 0;
 			len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[0]);
 			if(len > 0) {
-				mgt->lastsend[0] = tnow;
+				mgt->data[0].lastsend = tnow;
 				return len;
 			}
 		}
@@ -624,7 +633,7 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 			}
 			else {
 				// node is already connected
-				if(peeraddrIsInternal(&mgt->remoteaddr[peerid])) {
+				if(peeraddrIsInternal(&mgt->data[peerid].remoteaddr)) {
 					peermgtSendPingToAddr(mgt, NULL, peerid, nodedbGetNodeAddress(&mgt->nodedb, i)); // try to switch peer to a direct connection
 					nodedbUpdate(&mgt->nodedb, nodedbGetNodeID(&mgt->nodedb, i), NULL, 0, 0, 1, 0, 0, 0);
 					mgt->lastconnect = tnow;
@@ -667,8 +676,8 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 						memcpy(&mgt->relaymsgbuf[packet_PEERID_SIZE], pbuf, outlen);
 						data.pl_buf = mgt->relaymsgbuf;
 						data.pl_buf_size = packet_PEERID_SIZE + outlen;
-						data.peerid = mgt->remoteid[relayid];
-						data.seq = ++mgt->remoteseq[relayid];
+						data.peerid = mgt->data[relayid].remoteid;
+						data.seq = ++mgt->data[relayid].remoteseq;
 						data.pl_length = packet_PEERID_SIZE + outlen;
 						data.pl_type = packet_PLTYPE_RELAY_IN;
 						data.pl_options = 0;
@@ -676,8 +685,8 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 						// encode relay-in packet
 						len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[relayid]);
 						if(len > 0) {
-							mgt->lastsend[relayid] = tnow;
-							*target = mgt->remoteaddr[relayid];
+							mgt->data[relayid].lastsend = tnow;
+							*target = mgt->data[relayid].remoteaddr;
 							outlen = len;
 						}
 						else {
@@ -723,14 +732,14 @@ static int peermgtDecodePacketAuth(struct s_peermgt *mgt, const struct s_packet_
 				peerid = -1;
 				
 				// Upgrade indirect connection to a direct one
-				if((peeraddrIsInternal(&mgt->remoteaddr[dupid])) && (!peeraddrIsInternal(source_addr))) {
-					mgt->remoteaddr[dupid] = *source_addr;
+				if((peeraddrIsInternal(&mgt->data[dupid].remoteaddr)) && (!peeraddrIsInternal(source_addr))) {
+					mgt->data[dupid].remoteaddr = *source_addr;
 					peermgtSendPingToAddr(mgt, NULL, dupid, *source_addr); // send a ping using the new peer address
 				}
 			}
 			if(peerid > 0) {
 				// NodeID gets accepted here.
-				authmgtAcceptAuthedPeer(authmgt, peerid, seqGet(&mgt->seq[peerid]), mgt->localflags);
+				authmgtAcceptAuthedPeer(authmgt, peerid, seqGet(&mgt->data[peerid].seq), mgt->localflags);
 			}
 			else {
 				// Reject authentication attempt because local PeerID could not be generated.
@@ -739,16 +748,16 @@ static int peermgtDecodePacketAuth(struct s_peermgt *mgt, const struct s_packet_
 		}
 		if(authmgtGetCompletedPeerNodeID(authmgt, &peer_nodeid)) {
 			peerid = peermgtGetID(mgt, &peer_nodeid);
-			if((peerid > 0) && (mgt->state[peerid] >= peermgt_STATE_AUTHED) && (authmgtGetCompletedPeerLocalID(authmgt)) == peerid) {
+			if((peerid > 0) && (mgt->data[peerid].state >= peermgt_STATE_AUTHED) && (authmgtGetCompletedPeerLocalID(authmgt)) == peerid) {
 				// Node data gets completed here.
-				authmgtGetCompletedPeerAddress(authmgt, &mgt->remoteid[peerid], &mgt->remoteaddr[peerid]);
+				authmgtGetCompletedPeerAddress(authmgt, &mgt->data[peerid].remoteid, &mgt->data[peerid].remoteaddr);
 				authmgtGetCompletedPeerSessionKeys(authmgt, &mgt->ctx[peerid]);
-				authmgtGetCompletedPeerConnectionParams(authmgt, &mgt->remoteseq[peerid], &remoteflags);
-				mgt->remoteflags[peerid] = remoteflags;
-				mgt->state[peerid] = peermgt_STATE_COMPLETE;
-				mgt->lastrecv[peerid] = tnow;
-				if(!peeraddrIsInternal(&mgt->remoteaddr[peerid])) { // do not pollute NodeDB with internal addresses
-					nodedbUpdate(&mgt->nodedb, &peer_nodeid, &mgt->remoteaddr[peerid], 1, 1, 0, 0, 0, 0);
+				authmgtGetCompletedPeerConnectionParams(authmgt, &mgt->data[peerid].remoteseq, &remoteflags);
+				mgt->data[peerid].remoteflags = remoteflags;
+				mgt->data[peerid].state = peermgt_STATE_COMPLETE;
+				mgt->data[peerid].lastrecv = tnow;
+				if(!peeraddrIsInternal(&mgt->data[peerid].remoteaddr)) { // do not pollute NodeDB with internal addresses
+					nodedbUpdate(&mgt->nodedb, &peer_nodeid, &mgt->data[peerid].remoteaddr, 1, 1, 0, 0, 0, 0);
 				}
 			}
 			authmgtFinishCompletedPeer(authmgt);
@@ -777,10 +786,10 @@ static int peermgtDecodePacketPeerinfo(struct s_peermgt *mgt, const struct s_pac
 	if(data->pl_length > 4) {
 		peerinfo_count = utilReadInt32(data->pl_buf);
 		if(peerinfo_count > 0 && (((peerinfo_count * peerinfo_size) + 4) <= data->pl_length)) {
-			if((peermgtGetRemoteFlag(mgt, data->peerid, peermgt_FLAG_RELAY)) && (!peeraddrIsInternal(&mgt->remoteaddr[data->peerid]))) {
+			if((peermgtGetRemoteFlag(mgt, data->peerid, peermgt_FLAG_RELAY)) && (!peeraddrIsInternal(&mgt->data[data->peerid].remoteaddr))) {
 				// add indirect NodeDB entry
 				relayid = data->peerid;
-				relayct = mgt->conntime[relayid];
+				relayct = mgt->data[relayid].conntime;
 			}
 			else {
 				// don't change indirect NodeDB entry
@@ -801,7 +810,7 @@ static int peermgtDecodePacketPeerinfo(struct s_peermgt *mgt, const struct s_pac
 					}
 					else { if(localid > 0) {
 						// already connected
-						if(peeraddrIsInternal(&mgt->remoteaddr[localid])) {
+						if(peeraddrIsInternal(&mgt->data[localid].remoteaddr)) {
 							nodedbUpdate(&mgt->nodedb, &nodeid, &addr, 1, 1, 0, relayid, relayct, relaypeerid);
 						}
 						else {
@@ -872,7 +881,7 @@ static int peermgtDecodeUserdataFragment(struct s_peermgt *mgt, struct s_packet_
 	int fragpos = (data->pl_options & 0x0F);
 	int64_t fragseq = (data->seq - (int64_t)fragpos);
 	int peerid = data->peerid;
-	int id = dfragAssemble(&mgt->dfrag, mgt->conntime[peerid], peerid, fragseq, data->pl_buf, data->pl_length, fragpos, fragcount);
+	int id = dfragAssemble(&mgt->dfrag, mgt->data[peerid].conntime, peerid, fragseq, data->pl_buf, data->pl_length, fragpos, fragcount);
 	int len;
 	if(!(id < 0)) {
 		len = dfragLength(&mgt->dfrag, id);
@@ -907,7 +916,7 @@ static int peermgtDecodePacketRecursive(struct s_peermgt *mgt, const unsigned ch
 			if(peerid > 0) {
 				// packet has an active PeerID
 				mgt->msgsize = 0;
-				if(packetDecode(&data, packet, packet_len, &mgt->ctx[peerid], &mgt->seq[peerid]) > 0) {
+				if(packetDecode(&data, packet, packet_len, &mgt->ctx[peerid], &mgt->data[peerid].seq) > 0) {
 					if((data.pl_length > 0) && (data.pl_length < peermgt_MSGSIZE_MAX)) {
 						switch(data.pl_type) {
 							case packet_PLTYPE_USERDATA:
@@ -952,7 +961,7 @@ static int peermgtDecodePacketRecursive(struct s_peermgt *mgt, const unsigned ch
 							case packet_PLTYPE_RELAY_OUT:
 								if(data.pl_length > packet_PEERID_SIZE) {
 									memcpy(mgt->relaymsgbuf, &data.pl_buf[4], (data.pl_length - packet_PEERID_SIZE)); 
-									peeraddrSetIndirect(&indirect_addr, peerid, mgt->conntime[peerid], utilReadInt32(&data.pl_buf[0])); // generate indirect PeerAddr
+									peeraddrSetIndirect(&indirect_addr, peerid, mgt->data[peerid].conntime, utilReadInt32(&data.pl_buf[0])); // generate indirect PeerAddr
 									ret = peermgtDecodePacketRecursive(mgt, mgt->relaymsgbuf, (data.pl_length - packet_PEERID_SIZE), &indirect_addr, tnow, (depth + 1)); // decode decapsulated packet
 								}
 								break;
@@ -961,8 +970,8 @@ static int peermgtDecodePacketRecursive(struct s_peermgt *mgt, const unsigned ch
 								break;
 						}
 						if(ret > 0) {
-							mgt->lastrecv[peerid] = tnow;
-							mgt->remoteaddr[peerid] = *source_addr;
+							mgt->data[peerid].lastrecv = tnow;
+							mgt->data[peerid].remoteaddr = *source_addr;
 							return 1;
 						}
 					}
@@ -1091,7 +1100,7 @@ static int peermgtInit(struct s_peermgt *mgt) {
 	mgt->localflags = 0;
 	
 	for(i=0; i<s; i++) {
-		mgt->state[i] = peermgt_STATE_INVALID;
+		mgt->data[i].state = peermgt_STATE_INVALID;
 	}
 
 	memset(empty_addr.addr, 0, peeraddr_SIZE);
@@ -1103,7 +1112,7 @@ static int peermgtInit(struct s_peermgt *mgt) {
 	if(peermgtNew(mgt, local_nodeid, &empty_addr) == 0) { // ID 0 should always represent local NodeID
 		if(peermgtGetID(mgt, local_nodeid) == 0) {
 			if(peermgtSetNetID(mgt, defaultpw, 7) && peermgtSetPassword(mgt, defaultpw, 7)) {
-				mgt->state[0] = peermgt_STATE_COMPLETE;
+				mgt->data[0].state = peermgt_STATE_COMPLETE;
 				return 1;
 			}
 		}
@@ -1143,26 +1152,26 @@ static void peermgtStatus(struct s_peermgt *mgt, char *report, const int report_
 			pos = pos + (nodeid_SIZE * 2);
 			report[pos++] = ' ';
 			report[pos++] = ' ';
-			utilByteArrayToHexstring(&report[pos], ((peeraddr_SIZE * 2) + 2), mgt->remoteaddr[i].addr, peeraddr_SIZE);
+			utilByteArrayToHexstring(&report[pos], ((peeraddr_SIZE * 2) + 2), mgt->data[i].remoteaddr.addr, peeraddr_SIZE);
 			pos = pos + (peeraddr_SIZE * 2);
 			report[pos++] = ' ';
 			report[pos++] = ' ';
-			infostate[0] = mgt->state[i];
+			infostate[0] = mgt->data[i].state;
 			utilByteArrayToHexstring(&report[pos], 4, infostate, 1);
 			pos = pos + 2;
 			report[pos++] = ' ';
 			report[pos++] = ' ';
-			utilWriteInt32(timediff, (tnow - mgt->lastrecv[i]));
+			utilWriteInt32(timediff, (tnow - mgt->data[i].lastrecv));
 			utilByteArrayToHexstring(&report[pos], 10, timediff, 4);
 			pos = pos + 8;
 			report[pos++] = ' ';
 			report[pos++] = ' ';
-			utilWriteInt32(timediff, (tnow - mgt->conntime[i]));
+			utilWriteInt32(timediff, (tnow - mgt->data[i].conntime));
 			utilByteArrayToHexstring(&report[pos], 10, timediff, 4);
 			pos = pos + 8;
 			report[pos++] = ' ';
 			report[pos++] = ' ';
-			utilWriteInt16(infoflags, mgt->remoteflags[i]);
+			utilWriteInt16(infoflags, mgt->data[i].remoteflags);
 			utilByteArrayToHexstring(&report[pos], 6, infoflags, 2);
 			pos = pos + 4;
 			report[pos++] = '\n';
@@ -1177,97 +1186,43 @@ static void peermgtStatus(struct s_peermgt *mgt, char *report, const int report_
 static int peermgtCreate(struct s_peermgt *mgt, const int peer_slots, const int auth_slots, struct s_nodekey *local_nodekey, struct s_dh_state *dhstate) {
 	int tnow = utilGetTime();
 	const char *defaultid = "default";
-	int *conntime_mem;
-	int *state_mem;
-	int *lastsend_mem;
-	int *lastrecv_mem;
-	struct s_peeraddr *remoteaddr_mem;
-	int *remoteid_mem;
+	struct s_peermgt_data *data_mem;
 	struct s_crypto *ctx_mem;
-	int64_t *remoteseq_mem;
-	int *remoteflags_mem;
-	struct s_seq_state *seq_mem;
 
 	if((peer_slots > 0) && (auth_slots > 0) && (peermgtSetNetID(mgt, defaultid, 7))) {
-		conntime_mem = malloc(sizeof(int) * (peer_slots + 1));
-		if(conntime_mem != NULL) {
-			state_mem = malloc(sizeof(int) * (peer_slots + 1));
-			if(state_mem != NULL) {
-				lastsend_mem = malloc(sizeof(int) * (peer_slots + 1));
-				if(lastsend_mem != NULL) {
-					lastrecv_mem = malloc(sizeof(int) * (peer_slots + 1));
-					if(lastrecv_mem != NULL) {
-						remoteaddr_mem = malloc(sizeof(struct s_peeraddr) * (peer_slots + 1));
-						if(remoteaddr_mem != NULL) {
-							remoteid_mem = malloc(sizeof(int) * (peer_slots + 1));
-							if(remoteid_mem != NULL) {
-								ctx_mem = malloc(sizeof(struct s_crypto) * (peer_slots + 1));
-								if(ctx_mem != NULL) {
-									if(cryptoCreate(ctx_mem, (peer_slots + 1))) {
-										remoteflags_mem = malloc(sizeof(int) * (peer_slots + 1));
-										if(remoteflags_mem) {
-											remoteseq_mem = malloc(sizeof(int64_t) * (peer_slots + 1));
-											if(remoteseq_mem) {
-												seq_mem = malloc(sizeof(struct s_seq_state) * (peer_slots + 1));
-												if(seq_mem != NULL) {
-													if(dfragCreate(&mgt->dfrag, peermgt_MSGSIZE_MIN, peermgt_FRAGBUF_COUNT)) {
-														if(authmgtCreate(&mgt->authmgt, &mgt->netid, auth_slots, local_nodekey, dhstate)) {
-															if(nodedbCreate(&mgt->nodedb, ((peer_slots * 8) + 1))) {
-																if(mapCreate(&mgt->map, (peer_slots + 1), nodeid_SIZE, 1)) {
-																	mgt->nodekey = local_nodekey;
-																	mgt->conntime = conntime_mem;
-																	mgt->state = state_mem;
-																	mgt->lastsend = lastsend_mem;
-																	mgt->lastrecv = lastrecv_mem;
-																	mgt->remoteaddr = remoteaddr_mem;
-																	mgt->remoteid = remoteid_mem;
-																	mgt->ctx = ctx_mem;
-																	mgt->remoteseq = remoteseq_mem;
-																	mgt->remoteflags = remoteflags_mem;
-																	mgt->seq = seq_mem;
-																	mgt->lastconnect = tnow;
-																	mgt->rrmsg.msg = mgt->rrmsgbuf;
-																	if(peermgtInit(mgt)) {
-																		return 1;
-																	}
-																	mgt->nodekey = NULL;
-																	mgt->state = NULL;
-																	mgt->lastsend = NULL;
-																	mgt->lastrecv = NULL;
-																	mgt->remoteaddr = NULL;
-																	mgt->remoteid = NULL;
-																	mgt->ctx = NULL;
-																	mgt->remoteseq = NULL;
-																	mgt->seq = NULL;
-																	mapDestroy(&mgt->map);
-																}
-																nodedbDestroy(&mgt->nodedb);
-															}
-															authmgtDestroy(&mgt->authmgt);
-														}
-														dfragDestroy(&mgt->dfrag);
-													}
-													free(seq_mem);
-												}
-												free(remoteseq_mem);
-											}
-											free(remoteflags_mem);
-										}
-										cryptoDestroy(ctx_mem, (peer_slots + 1));
+		data_mem = malloc(sizeof(struct s_peermgt_data) * (peer_slots + 1));
+		if(data_mem != NULL) {
+			ctx_mem = malloc(sizeof(struct s_crypto) * (peer_slots + 1));
+			if(ctx_mem != NULL) {
+				if(cryptoCreate(ctx_mem, (peer_slots + 1))) {
+					if(dfragCreate(&mgt->dfrag, peermgt_MSGSIZE_MIN, peermgt_FRAGBUF_COUNT)) {
+						if(authmgtCreate(&mgt->authmgt, &mgt->netid, auth_slots, local_nodekey, dhstate)) {
+							if(nodedbCreate(&mgt->nodedb, ((peer_slots * 8) + 1))) {
+								if(mapCreate(&mgt->map, (peer_slots + 1), nodeid_SIZE, 1)) {
+									mgt->nodekey = local_nodekey;
+									mgt->data = data_mem;
+									mgt->ctx = ctx_mem;
+									mgt->lastconnect = tnow;
+									mgt->rrmsg.msg = mgt->rrmsgbuf;
+									if(peermgtInit(mgt)) {
+										return 1;
 									}
-									free(ctx_mem);
+									mgt->nodekey = NULL;
+									mgt->data = NULL;
+									mgt->ctx = NULL;
+									mapDestroy(&mgt->map);
 								}
-								free(remoteid_mem);
+								nodedbDestroy(&mgt->nodedb);
 							}
-							free(remoteaddr_mem);
+							authmgtDestroy(&mgt->authmgt);
 						}
-						free(lastrecv_mem);
+						dfragDestroy(&mgt->dfrag);
 					}
-					free(lastsend_mem);
+					cryptoDestroy(ctx_mem, (peer_slots + 1));
 				}
-				free(state_mem);
+				free(ctx_mem);
 			}
-			free(conntime_mem);
+			free(data_mem);
 		}
 	}
 	return 0;
@@ -1281,17 +1236,9 @@ static void peermgtDestroy(struct s_peermgt *mgt) {
 	nodedbDestroy(&mgt->nodedb);
 	authmgtDestroy(&mgt->authmgt);
 	dfragDestroy(&mgt->dfrag);
-	free(mgt->seq);
-	free(mgt->remoteseq);
-	free(mgt->remoteflags);
 	cryptoDestroy(mgt->ctx, size);
 	free(mgt->ctx);
-	free(mgt->remoteid);
-	free(mgt->remoteaddr);
-	free(mgt->lastrecv);
-	free(mgt->lastsend);
-	free(mgt->state);
-	free(mgt->conntime);
+	free(mgt->data);
 }
 
 
