@@ -41,12 +41,18 @@ static void mainLoop() {
 		// check udp sockets
 		while((len = (ioRecvPacket(&iostate, buf, 4096, new_peeraddr))) > 0) {
 			if(p2psecInputPacket(g_p2psec, buf, len, new_peeraddr)) {
+				// output frames to tap device
 				msg = p2psecRecvMSGFromPeerID(g_p2psec, &source_peerid, &len);
 				if(msg != NULL && len > 12 && g_enableeth > 0) {
 					mactableAddMAC(source_peerid, &msg[6]);
 					if(!((ioWriteTap(&iostate, msg, len) > 0))) {
 						logWarning("could not write to tap device!");
 					}
+				}
+				
+				// output packets
+				while((len = (p2psecOutputPacket(g_p2psec, buf, 4096, new_peeraddr))) > 0) {
+					ioSendPacket(&iostate, buf, len, new_peeraddr);
 				}
 			}
 		}

@@ -649,8 +649,6 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 // Get next peer manager packet. Also encapsulates packets for relaying if necessary. Returns length if successful.
 static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, const int pbuf_size, struct s_peeraddr *target) {
 	int tnow;
-	int ready;
-	int len;
 	int outlen;
 	int relayid;
 	int relayct;
@@ -658,36 +656,38 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 	int depth;
 	struct s_packet_data data;
 	tnow = utilGetTime();
-	depth = 0;
-	ready = 0;
-	outlen = peermgtGetNextPacketGen(mgt, pbuf, pbuf_size, tnow, target);
-	while((outlen > 0) && (ready == 0)) {
-		if(depth < peermgt_DECODE_RECURSION_MAX_DEPTH) { // limit encapsulation depth
-			if(!peeraddrIsInternal(target)) {
-				// address is external, packet is ready for sending
-				ready = 1;
-			}
-			else {
-				if(((packet_PEERID_SIZE + outlen) < peermgt_MSGSIZE_MAX) && (peeraddrGetIndirect(target, &relayid, &relayct, &relaypeerid))) {
-					// address is indirect, encapsulate packet for relaying
-					if(peermgtIsActiveRemoteIDCT(mgt, relayid, relayct)) {
-						// generate relay-in packet
-						utilWriteInt32(&mgt->relaymsgbuf[0], relaypeerid);
-						memcpy(&mgt->relaymsgbuf[packet_PEERID_SIZE], pbuf, outlen);
-						data.pl_buf = mgt->relaymsgbuf;
-						data.pl_buf_size = packet_PEERID_SIZE + outlen;
-						data.peerid = mgt->data[relayid].remoteid;
-						data.seq = ++mgt->data[relayid].remoteseq;
-						data.pl_length = packet_PEERID_SIZE + outlen;
-						data.pl_type = packet_PLTYPE_RELAY_IN;
-						data.pl_options = 0;
-					
-						// encode relay-in packet
-						len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[relayid]);
-						if(len > 0) {
-							mgt->data[relayid].lastsend = tnow;
-							*target = mgt->data[relayid].remoteaddr;
-							outlen = len;
+	while((outlen = (peermgtGetNextPacketGen(mgt, pbuf, pbuf_size, tnow, target))) > 0) {
+		depth = 0;
+		while(outlen > 0) {
+			if(depth < peermgt_DECODE_RECURSION_MAX_DEPTH) { // limit encapsulation depth
+				if(!peeraddrIsInternal(target)) {
+					// address is external, packet is ready for sending
+					return outlen;
+				}
+				else {
+					if(((packet_PEERID_SIZE + outlen) < peermgt_MSGSIZE_MAX) && (peeraddrGetIndirect(target, &relayid, &relayct, &relaypeerid))) {
+						// address is indirect, encapsulate packet for relaying
+						if(peermgtIsActiveRemoteIDCT(mgt, relayid, relayct)) {
+							// generate relay-in packet
+							utilWriteInt32(&mgt->relaymsgbuf[0], relaypeerid);
+							memcpy(&mgt->relaymsgbuf[packet_PEERID_SIZE], pbuf, outlen);
+							data.pl_buf = mgt->relaymsgbuf;
+							data.pl_buf_size = packet_PEERID_SIZE + outlen;
+							data.peerid = mgt->data[relayid].remoteid;
+							data.seq = ++mgt->data[relayid].remoteseq;
+							data.pl_length = packet_PEERID_SIZE + outlen;
+							data.pl_type = packet_PLTYPE_RELAY_IN;
+							data.pl_options = 0;
+
+							// encode relay-in packet
+							outlen = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[relayid]);
+							if(outlen > 0) {
+								mgt->data[relayid].lastsend = tnow;
+								*target = mgt->data[relayid].remoteaddr;
+							}
+							else {
+								outlen = 0;
+							}
 						}
 						else {
 							outlen = 0;
@@ -697,17 +697,14 @@ static int peermgtGetNextPacket(struct s_peermgt *mgt, unsigned char *pbuf, cons
 						outlen = 0;
 					}
 				}
-				else {
-					outlen = 0;
-				}
+				depth++;
 			}
-			depth++;
-		}
-		else {
-			outlen = 0;
+			else {
+				outlen = 0;
+			}
 		}
 	}
-	return outlen;
+	return 0;
 }
 
 
