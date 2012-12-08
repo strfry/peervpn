@@ -19,7 +19,7 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 29
+#define PEERVPN_VERSION_MINOR 30
 
 
 // compile time options & timing parameters
@@ -51,6 +51,7 @@ struct s_initconfig {
 	int enableindirect;
 	int enablerelay;
 	int enableeth;
+	int enablendpcache;
 	int enableipv4;
 	int enableipv6;
 	int enableprivdrop;
@@ -64,7 +65,8 @@ struct s_io_state iostate;
 P2PSEC_CTX *g_p2psec;
 int g_mainloop;
 char g_initpeers[INITPEER_STORAGE+1];
-struct s_map g_mactable;
+struct s_switch_state g_switchstate;
 int g_enableconsole;
 int g_enableeth;
+int g_enablendpcache;
 int g_enableengines;

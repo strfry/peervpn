@@ -81,6 +81,7 @@ static int peermgtTestsuiteRun(struct s_peermgt_test *teststate) {
 	struct s_peeraddr addr = {{0}};
 	struct s_peeraddr sourceaddr = {{0}};
 	
+	/*
 	const char *msg1_text = "hello world!";
 	struct s_msg msg1 = { .msg = (unsigned char *)msg1_text, .len = strlen(msg1_text) };
 	
@@ -95,6 +96,7 @@ static int peermgtTestsuiteRun(struct s_peermgt_test *teststate) {
 	struct s_msg longmsg1 = { .msg = (unsigned char *)longmsg_text, .len = 1024 };
 	struct s_msg longmsg2 = { .msg = (unsigned char *)longmsg_text, .len = 2048 };
 	struct s_msg longmsg3 = { .msg = (unsigned char *)longmsg_text, .len = 3072 };
+	*/
 	
 	struct s_msg msgr;
 	
@@ -108,6 +110,7 @@ static int peermgtTestsuiteRun(struct s_peermgt_test *teststate) {
 					peermgtConnect(&teststate->peermgts[i], addr);
 				}
 				break;
+			/*
 			case 17:
 				// send message from node 0 to peerid 1
 				peermgtSendUserdata(&teststate->peermgts[0], &msg1, NULL, 1);
@@ -140,6 +143,7 @@ static int peermgtTestsuiteRun(struct s_peermgt_test *teststate) {
 				// send broadcast message
 				peermgtSendBroadcastUserdata(&teststate->peermgts[0], &msg3);
 				break;
+			*/
 			case 100:
 				// reset node 3
 				peermgtInit(&teststate->peermgts[3]);
@@ -163,12 +167,12 @@ static int peermgtTestsuiteRun(struct s_peermgt_test *teststate) {
 				j = peermgtTestsuiteGetID(&addr);
 				if(!(j < 0)) {
 					if(peermgtDecodePacket(&teststate->peermgts[j], pbuf, len, &sourceaddr)) {
-						if(peermgtRecvUserdata(&teststate->peermgts[j], &msgr, NULL, &l)) {
+						if(peermgtRecvUserdata(&teststate->peermgts[j], &msgr, NULL, &l, NULL)) {
 							memset(text, 0, 4096);
 							if(msgr.len < 4095) memcpy(text, msgr.msg, msgr.len);
 							printf("node %d received message \"%s\" from peerid %d\n", j, text, l);
 						}
-						if(peermgtRecvUserdata(&teststate->peermgts[j], &msgr, NULL, NULL)) return 0;
+						if(peermgtRecvUserdata(&teststate->peermgts[j], &msgr, NULL, NULL, NULL)) return 0;
 					}
 				}
 				else {

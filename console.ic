@@ -26,6 +26,22 @@ static void printActivePeerTable() {
 }
 
 
+// print table of mac addrs
+static void printMacTable() {
+	char str[8192];
+	switchStatus(&g_switchstate, str, 8192);
+	printf("%s\n", str);
+}
+
+
+// print table of ndp cache
+static void printNDPTable() {
+	char str[8192];
+	ndp6Status(&g_switchstate.ndpstate, str, 8192);
+	printf("%s\n", str);
+}
+
+
 // parse command
 static void decodeConsole(char *cmd, int cmdlen) {
 	char text[4096];
@@ -54,6 +70,14 @@ static void decodeConsole(char *cmd, int cmdlen) {
 		else {
 			printf("could not get peer address.\n");
 		}
+	}
+	if(pa[0] == 'M' || pa[0] == 'm') {
+		// MACTABLE
+		printMacTable();
+	}
+	if(pa[0] == 'N' || pa[0] == 'n') {
+		// NDPTABLE
+		printNDPTable();
 	}
 	if(pa[0] == 'P' || pa[0] == 'p') {
 		// PEERTABLE

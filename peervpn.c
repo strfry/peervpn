@@ -22,13 +22,13 @@
 #include <openssl/engine.h>
 
 
+#include "ethernet/switch.c"
 #include "libp2psec/p2psec.c"
 #include "platform/io.c"
 #include "platform/ifconfig.c"
 #include "globals.ic"
 #include "helpers.ic"
 #include "console.ic"
-#include "ethernet.ic"
 #include "mainloop.ic"
 #include "config.ic"
 #include "pwd.ic"
@@ -40,6 +40,7 @@ int main(int argc, char **argv) {
 	int confok;
 	int conffd;
 	int arglen;
+	int i;
 	struct s_initconfig config;
 
 	// default configuration
@@ -57,6 +58,7 @@ int main(int argc, char **argv) {
 	strcpy(config.engines,"");
 	config.password_len = 0;
 	config.enableeth = 0;
+	config.enablendpcache = 0;
 	config.enablerelay = 0;
 	config.enableindirect = 0;
 	config.enableconsole = 0;
@@ -72,7 +74,11 @@ int main(int argc, char **argv) {
 
 	confok = 0;
 	if(argc == 2) {
-		arglen = strnlen(&argv[1][0],2);
+		arglen = 0;
+		for(i=0; i<3; i++) {
+			if(argv[1][i] == '\0') break;
+			arglen++;
+		}
 		if(arglen > 0) {
 			if(argv[1][0] == '-') {
 				if(!((arglen > 1) && (argv[1][1] >= '!') && (argv[1][1] <= '~'))) {

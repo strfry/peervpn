@@ -176,6 +176,13 @@ void init(struct s_initconfig *initconfig) {
 		g_enableeth = 0;
 	}
 	
+	// enable ndp cache
+	if(initconfig->enablendpcache) {
+		g_enablendpcache = 1;
+	}
+	else {
+		g_enablendpcache = 0;
+	}
 	
 	// load OpenSSL engines
 	ENGINE_load_builtin_engines();
@@ -237,10 +244,7 @@ void init(struct s_initconfig *initconfig) {
 	printf("   done.\n");
 	
 	// initialize mac table
-	if(!mapCreate(&g_mactable, 8192, 6, sizeof(int))) throwError("failed to setup mactable!\n");
-	mapEnableReplaceOld(&g_mactable);
-	if(mapGetKeySize(&g_mactable) != 6) throwError("failed to setup mactable!\n");
-	if(mapGetValueSize(&g_mactable) != sizeof(int)) throwError("failed to setup mactable!\n");
+	if(!switchCreate(&g_switchstate)) throwError("failed to setup mactable!\n");
 	
 	// show client & network id
 	printf("\n");
@@ -263,7 +267,7 @@ void init(struct s_initconfig *initconfig) {
 	printf("\nmain loop left.\n");
 
 	// shut down
-	mapDestroy(&g_mactable);
+	switchDestroy(&g_switchstate);
 	p2psecStop(g_p2psec);
 	ioReset(&iostate);
 

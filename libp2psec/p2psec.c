@@ -310,7 +310,7 @@ int p2psecInputPacket(P2PSEC_CTX *p2psec, const unsigned char *packet_input, con
 unsigned char *p2psecRecvMSG(P2PSEC_CTX *p2psec, unsigned char *source_nodeid, int *message_len) {
 	struct s_msg msg;
 	struct s_nodeid nodeid;
-	if(peermgtRecvUserdata(&p2psec->mgt, &msg, &nodeid, NULL)) {
+	if(peermgtRecvUserdata(&p2psec->mgt, &msg, &nodeid, NULL, NULL)) {
 		*message_len = msg.len;
 		if(source_nodeid != NULL) memcpy(source_nodeid, nodeid.id, nodeid_SIZE);
 		return msg.msg;
@@ -321,9 +321,9 @@ unsigned char *p2psecRecvMSG(P2PSEC_CTX *p2psec, unsigned char *source_nodeid, i
 }
 
 
-unsigned char *p2psecRecvMSGFromPeerID(P2PSEC_CTX *p2psec, int *source_peerid, int *message_len) {
+unsigned char *p2psecRecvMSGFromPeerID(P2PSEC_CTX *p2psec, int *source_peerid, int *source_peerct, int *message_len) {
 	struct s_msg msg;
-	if(peermgtRecvUserdata(&p2psec->mgt, &msg, NULL, source_peerid)) {
+	if(peermgtRecvUserdata(&p2psec->mgt, &msg, NULL, source_peerid, source_peerct)) {
 		*message_len = msg.len;
 		return msg.msg;
 	}
@@ -337,7 +337,7 @@ int p2psecSendMSG(P2PSEC_CTX *p2psec, const unsigned char *destination_nodeid, u
 	struct s_msg msg = { .msg = message, .len = message_len };
 	struct s_nodeid nodeid;
 	memcpy(nodeid.id, destination_nodeid, nodeid_SIZE);
-	return peermgtSendUserdata(&p2psec->mgt, &msg, &nodeid, -1);
+	return peermgtSendUserdata(&p2psec->mgt, &msg, &nodeid, -1, -1);
 }
 
 
@@ -347,9 +347,9 @@ int p2psecSendBroadcastMSG(P2PSEC_CTX *p2psec, unsigned char *message, int messa
 }
 
 
-int p2psecSendMSGToPeerID(P2PSEC_CTX *p2psec, const int destination_peerid, unsigned char *message, int message_len) {
+int p2psecSendMSGToPeerID(P2PSEC_CTX *p2psec, const int destination_peerid, const int destination_peerct, unsigned char *message, int message_len) {
 	struct s_msg msg = { .msg = message, .len = message_len };
-	return peermgtSendUserdata(&p2psec->mgt, &msg, NULL, destination_peerid);
+	return peermgtSendUserdata(&p2psec->mgt, &msg, NULL, destination_peerid, destination_peerct);
 }
 
 

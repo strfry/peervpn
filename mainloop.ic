@@ -28,8 +28,12 @@ static void mainLoop() {
 	int laststatus = 0;
 	int lastconnectcount = 0;
 	int connectcount = 0;
+	int frametype;
 	int len;
+	unsigned char *genframe;
+	int genframe_len;
 	int source_peerid;
+	int source_peerct;
 	unsigned char new_peeraddr[peeraddr_SIZE];
 
 	while(g_mainloop) {
@@ -42,9 +46,9 @@ static void mainLoop() {
 		while((len = (ioRecvPacket(&iostate, buf, 4096, new_peeraddr))) > 0) {
 			if(p2psecInputPacket(g_p2psec, buf, len, new_peeraddr)) {
 				// output frames to tap device
-				msg = p2psecRecvMSGFromPeerID(g_p2psec, &source_peerid, &len);
+				msg = p2psecRecvMSGFromPeerID(g_p2psec, &source_peerid, &source_peerct, &len);
 				if(msg != NULL && len > 12 && g_enableeth > 0) {
-					mactableAddMAC(source_peerid, &msg[6]);
+					switchFrameIn(&g_switchstate, msg, len, source_peerid, source_peerct);
 					if(!((ioWriteTap(&iostate, msg, len) > 0))) {
 						logWarning("could not write to tap device!");
 					}
@@ -60,7 +64,25 @@ static void mainLoop() {
 		// check for ethernet frames on tap device
 		if(g_enableeth > 0) {
 			if((len = (ioReadTap(&iostate, msgbuf, 4096))) > 0) {
-				decodeFrame(msgbuf, len);
+				frametype = switchFrameOut(&g_switchstate, msgbuf, len, &source_peerid, &source_peerct);
+				if((g_enablendpcache) && ((genframe = (switchGetGeneratedFrame(&g_switchstate, &genframe_len))) != NULL)) {
+					if(!((ioWriteTap(&iostate, genframe, genframe_len) > 0))) {
+						logWarning("could not write to tap device!");
+					}
+				}
+				if(frametype == switch_FRAME_TYPE_UNICAST) {
+					if(peermgtIsActiveIDCT(&g_p2psec->mgt, source_peerid, source_peerct)) {
+						p2psecSendMSGToPeerID(g_p2psec, source_peerid, source_peerct, msgbuf, len);
+					}
+					else {
+						p2psecSendBroadcastMSG(g_p2psec, msgbuf, len);
+					}
+				}
+				else {
+					if(frametype == switch_FRAME_TYPE_BROADCAST) {
+						p2psecSendBroadcastMSG(g_p2psec, msgbuf, len);
+					}
+				}
 			}
 		}
 		

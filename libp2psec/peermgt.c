@@ -162,15 +162,9 @@ static int peermgtIsActiveID(struct s_peermgt *mgt, const int peerid) {
 }
 
 
-// Check if PeerID is active and remote (> 0).
-static int peermgtIsActiveRemoteID(struct s_peermgt *mgt, const int peerid) {
-	return ((peerid > 0) && (peermgtIsActiveID(mgt, peerid)));
-}
-
-
-// Check if PeerID is active, remote (> 0) and matches the specified connection time.
-static int peermgtIsActiveRemoteIDCT(struct s_peermgt *mgt, const int peerid, const int conntime) {
-	if(peermgtIsActiveRemoteID(mgt, peerid)) {
+// Check if PeerID is active and matches the specified connection time.
+static int peermgtIsActiveIDCT(struct s_peermgt *mgt, const int peerid, const int conntime) {
+	if(peermgtIsActiveID(mgt, peerid)) {
 		if(mgt->data[peerid].conntime == conntime) {
 			return 1;
 		}
@@ -181,6 +175,18 @@ static int peermgtIsActiveRemoteIDCT(struct s_peermgt *mgt, const int peerid, co
 	else {
 		return 0;
 	}
+}
+
+
+// Check if PeerID is active and remote (> 0).
+static int peermgtIsActiveRemoteID(struct s_peermgt *mgt, const int peerid) {
+	return ((peerid > 0) && (peermgtIsActiveID(mgt, peerid)));
+}
+
+
+// Check if PeerID is active, remote (> 0) and matches the specified connection time.
+static int peermgtIsActiveRemoteIDCT(struct s_peermgt *mgt, const int peerid, const int conntime) {
+	return ((peerid > 0) && (peermgtIsActiveIDCT(mgt, peerid, conntime)));
 }
 
 
@@ -214,8 +220,8 @@ static int peermgtGetID(struct s_peermgt *mgt, const struct s_nodeid *nodeid) {
 }
 
 
-// Returns PeerID if active PeerID or NodeID is specified. Returns -1 if it is not found or both IDs are specified and don't match the same node.
-static int peermgtGetActiveID(struct s_peermgt *mgt, const struct s_nodeid *nodeid, const int peerid) {
+// Returns PeerID if active PeerID + PeerCT or NodeID is specified. Returns -1 if it is not found or both IDs are specified and don't match the same node.
+static int peermgtGetActiveID(struct s_peermgt *mgt, const struct s_nodeid *nodeid, const int peerid, const int peerct) {
 	int outpeerid = -1;
 	
 	if(nodeid != NULL) {
@@ -231,7 +237,7 @@ static int peermgtGetActiveID(struct s_peermgt *mgt, const struct s_nodeid *node
 		}
 	}
 	if(!(outpeerid < 0)) {
-		if(peermgtIsActiveID(mgt, outpeerid)) {
+		if(peermgtIsActiveIDCT(mgt, outpeerid, peerct)) {
 			return outpeerid;
 		}
 	}
@@ -412,11 +418,11 @@ static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermg
 
 
 // Send ping to PeerAddr. Return 1 if successful.
-static int peermgtSendPingToAddr(struct s_peermgt *mgt, const struct s_nodeid *tonodeid, const int topeerid, const struct s_peeraddr peeraddr) {
+static int peermgtSendPingToAddr(struct s_peermgt *mgt, const struct s_nodeid *tonodeid, const int topeerid, const int topeerct, const struct s_peeraddr peeraddr) {
 	int outpeerid;
 	unsigned char pingbuf[peermgt_PINGBUF_SIZE];
 
-	outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid);
+	outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid, topeerct);
 
 	if(outpeerid > 0) {
 		cryptoRand(pingbuf, 64); // generate ping message
@@ -634,7 +640,7 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 			else {
 				// node is already connected
 				if(peeraddrIsInternal(&mgt->data[peerid].remoteaddr)) {
-					peermgtSendPingToAddr(mgt, NULL, peerid, nodedbGetNodeAddress(&mgt->nodedb, i)); // try to switch peer to a direct connection
+					peermgtSendPingToAddr(mgt, NULL, peerid, mgt->data[peerid].conntime, nodedbGetNodeAddress(&mgt->nodedb, i)); // try to switch peer to a direct connection
 					nodedbUpdate(&mgt->nodedb, nodedbGetNodeID(&mgt->nodedb, i), NULL, 0, 0, 1, 0, 0, 0);
 					mgt->lastconnect = tnow;
 				}
@@ -731,7 +737,7 @@ static int peermgtDecodePacketAuth(struct s_peermgt *mgt, const struct s_packet_
 				// Upgrade indirect connection to a direct one
 				if((peeraddrIsInternal(&mgt->data[dupid].remoteaddr)) && (!peeraddrIsInternal(source_addr))) {
 					mgt->data[dupid].remoteaddr = *source_addr;
-					peermgtSendPingToAddr(mgt, NULL, dupid, *source_addr); // send a ping using the new peer address
+					peermgtSendPingToAddr(mgt, NULL, dupid, mgt->data[dupid].conntime, *source_addr); // send a ping using the new peer address
 				}
 			}
 			if(peerid > 0) {
@@ -1000,12 +1006,20 @@ static int peermgtDecodePacket(struct s_peermgt *mgt, const unsigned char *packe
 
 
 // Return received user data. Return 1 if successful.
-static int peermgtRecvUserdata(struct s_peermgt *mgt, struct s_msg *recvmsg, struct s_nodeid *fromnodeid, int *frompeerid) {
+static int peermgtRecvUserdata(struct s_peermgt *mgt, struct s_msg *recvmsg, struct s_nodeid *fromnodeid, int *frompeerid, int *frompeerct) {
 	if((mgt->msgsize > 0) && (recvmsg != NULL)) {
 		recvmsg->msg = mgt->msgbuf;
 		recvmsg->len = mgt->msgsize;
 		if(fromnodeid != NULL) peermgtGetNodeID(mgt, fromnodeid, mgt->msgpeerid);
 		if(frompeerid != NULL) *frompeerid = mgt->msgpeerid;
+		if(frompeerct != NULL) {
+			if(peermgtIsActiveID(mgt, mgt->msgpeerid)) {
+				*frompeerct = mgt->data[mgt->msgpeerid].conntime;
+			}
+			else {
+				*frompeerct = 0;
+			}
+		}
 		mgt->msgsize = 0;
 		return 1;
 	}
@@ -1016,12 +1030,12 @@ static int peermgtRecvUserdata(struct s_peermgt *mgt, struct s_msg *recvmsg, str
 
 
 // Send user data. Return 1 if successful.
-static int peermgtSendUserdata(struct s_peermgt *mgt, const struct s_msg *sendmsg, const struct s_nodeid *tonodeid, const int topeerid) {
+static int peermgtSendUserdata(struct s_peermgt *mgt, const struct s_msg *sendmsg, const struct s_nodeid *tonodeid, const int topeerid, const int topeerct) {
 	int outpeerid;
 
 	if(sendmsg != NULL) {
 		if((sendmsg->len > 0) && (sendmsg->len <= peermgt_MSGSIZE_MAX)) {
-			outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid);
+			outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid, topeerct);
 			if(outpeerid >= 0) {
 				if(outpeerid > 0) {
 					// message goes out
