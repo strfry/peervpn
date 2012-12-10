@@ -23,11 +23,12 @@
 
 
 #include "ethernet/switch.c"
+#include "ethernet/ndp6.c"
+#include "ethernet/virtserv.c"
 #include "libp2psec/p2psec.c"
 #include "platform/io.c"
 #include "platform/ifconfig.c"
 #include "globals.ic"
-#include "helpers.ic"
 #include "console.ic"
 #include "mainloop.ic"
 #include "config.ic"

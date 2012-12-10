@@ -246,11 +246,17 @@ void init(struct s_initconfig *initconfig) {
 	// initialize mac table
 	if(!switchCreate(&g_switchstate)) throwError("failed to setup mactable!\n");
 	
+	// initialize ndp table
+	if(!ndp6Create(&g_ndpstate)) throwError("failed to setup ndptable!\n");
+	
+	// initialize virtual service
+	if(!virtservCreate(&g_virtserv)) throwError("failed to setup virtserv!\n");
+	
 	// show client & network id
 	printf("\n");
-	byteArrayToString(str, mapGetKeyByID(&g_p2psec->mgt.map, 0), p2psecGetNodeIDSize());
+	utilByteArrayToHexstring(str, 256, mapGetKeyByID(&g_p2psec->mgt.map, 0), p2psecGetNodeIDSize());
 	printf("Client ID:  %s\n", str);
-	byteArrayToString(str, g_p2psec->mgt.netid.id, netid_SIZE);
+	utilByteArrayToHexstring(str, 256, g_p2psec->mgt.netid.id, netid_SIZE);
 	printf("Network ID: %s\n", str);
 	printf("\n");
 
@@ -267,6 +273,8 @@ void init(struct s_initconfig *initconfig) {
 	printf("\nmain loop left.\n");
 
 	// shut down
+	virtservDestroy(&g_virtserv);
+	ndp6Destroy(&g_ndpstate);
 	switchDestroy(&g_switchstate);
 	p2psecStop(g_p2psec);
 	ioReset(&iostate);

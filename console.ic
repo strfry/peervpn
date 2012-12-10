@@ -37,7 +37,7 @@ static void printMacTable() {
 // print table of ndp cache
 static void printNDPTable() {
 	char str[8192];
-	ndp6Status(&g_switchstate.ndpstate, str, 8192);
+	ndp6Status(&g_ndpstate, str, 8192);
 	printf("%s\n", str);
 }
 

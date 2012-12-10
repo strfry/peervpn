@@ -23,18 +23,16 @@
 
 #include "../libp2psec/map.c"
 #include "../libp2psec/util.c"
-#include "ndp6.c"
 
 
 // Constants.
 #define switch_FRAME_TYPE_INVALID 0
 #define switch_FRAME_TYPE_BROADCAST 1
 #define switch_FRAME_TYPE_UNICAST 2
-
-#define switch_FRAME_MINSIZE 12
-#define switch_FRAME_GENSIZE 256
+#define switch_FRAME_MINSIZE 14
 #define switch_MACADDR_SIZE 6
-#define switch_MACMAP_SIZE 16384
+#define switch_MACMAP_SIZE 8192
+#define switch_TIMEOUT 86400
 
 
 // Constraints.
@@ -44,58 +42,47 @@
 #if switch_MACADDR_SIZE != 6
 #error switch_MACADDR_SIZE is not 6
 #endif
-#if switch_MACADDR_SIZE != ndp6_MAC_SIZE
-#error switch_MACADDR_SIZE != ndp6_MAC_SIZE
-#endif
 
 
 // Switchstate structures.
 struct s_switch_mactable_entry {
 	int portid;
 	int portts;
+	int ents;
 };
 struct s_switch_state {
 	struct s_map mactable;
-	struct s_ndp6_state ndpstate;
-	unsigned char genframe_buf[switch_FRAME_GENSIZE];
-	int genframe_len;
 };
 
 
-// Get generated frame
-static unsigned char *switchGetGeneratedFrame(struct s_switch_state *switchstate, int *genframe_len) {
-	int len = switchstate->genframe_len;
-	if(len > 0) {
-		switchstate->genframe_len = 0;
-		*genframe_len = len;
-		return switchstate->genframe_buf;
-	}
-	else {
-		return NULL;
-	}
-}
-
-	
-// Get PortID+PortTS of outgoing frame.
+// Get type of outgoing frame. If it is an unicast frame, also returns PortID and PortTS.
 static int switchFrameOut(struct s_switch_state *switchstate, const unsigned char *frame, const int frame_len, int *portid, int *portts) {
 	struct s_switch_mactable_entry *mapentry;
 	const unsigned char *macaddr;
 	int pos;
 	if(frame_len > switch_FRAME_MINSIZE) {
-		switchstate->genframe_len = ndp6GenAdv(&switchstate->ndpstate, frame, frame_len, switchstate->genframe_buf, switch_FRAME_GENSIZE); // scan for neighbor solicitations
 		macaddr = &frame[0];
 		pos = mapGetKeyID(&switchstate->mactable, macaddr);
-		if((!(pos < 0)) && (portid != NULL) && (portts != NULL)) {
+		if(!(pos < 0)) {
 			mapentry = (struct s_switch_mactable_entry *)mapGetValueByID(&switchstate->mactable, pos);
-			*portid = mapentry->portid;
-			*portts = mapentry->portts;
-			return switch_FRAME_TYPE_UNICAST;
+			if((utilGetTime() - mapentry->ents) < switch_TIMEOUT) {
+				// valid entry found
+				*portid = mapentry->portid;
+				*portts = mapentry->portts;
+				return switch_FRAME_TYPE_UNICAST;
+			}
+			else {
+				// outdated entry found
+				return switch_FRAME_TYPE_BROADCAST;
+			}
 		}
 		else {
+			// no entry found
 			return switch_FRAME_TYPE_BROADCAST;
 		}
 	}
 	else {
+		// invalid frame
 		return switch_FRAME_TYPE_INVALID;
 	}
 }
@@ -106,11 +93,11 @@ static void switchFrameIn(struct s_switch_state *switchstate, const unsigned cha
 	struct s_switch_mactable_entry mapentry;
 	const unsigned char *macaddr;
 	if(frame_len > switch_FRAME_MINSIZE) {
-		ndp6ScanFrame(&switchstate->ndpstate, frame, frame_len); // scan for neighbor advertisements
 		macaddr = &frame[6];
-		if((macaddr[0] & 0x01) == 0) { // only insert unicast frames into mactable
+		if((macaddr[0] & 0x01) == 0) { // only insert unicast address into mactable
 			mapentry.portid = portid;
 			mapentry.portts = portts;
+			mapentry.ents = utilGetTime();
 			mapSet(&switchstate->mactable, macaddr, &mapentry);
 		}
 	}
@@ -119,21 +106,23 @@ static void switchFrameIn(struct s_switch_state *switchstate, const unsigned cha
 
 // Generate MAC table status report.
 static void switchStatus(struct s_switch_state *switchstate, char *report, const int report_len) {
+	int tnow = utilGetTime();
 	struct s_map *map = &switchstate->mactable;
 	struct s_switch_mactable_entry *mapentry;
 	int pos = 0;
 	int size = mapGetMapSize(map);
-	int maxpos = (((size + 2) * (39)) + 1);
+	int maxpos = (((size + 2) * (49)) + 1);
 	unsigned char infomacaddr[switch_MACADDR_SIZE];
 	unsigned char infoportid[4];
 	unsigned char infoportts[4];
+	unsigned char infoents[4];
 	int i = 0;
 	int j = 0;
 	
 	if(maxpos > report_len) { maxpos = report_len; }
 	
-	memcpy(&report[pos], "MAC                PortID    PortTS  ", 37);
-	pos = pos + 37;
+	memcpy(&report[pos], "MAC                PortID    PortTS    LastFrm ", 47);
+	pos = pos + 47;
 	report[pos++] = '\n';
 
 	while(i < size && pos < maxpos) {
@@ -157,6 +146,11 @@ static void switchStatus(struct s_switch_state *switchstate, char *report, const
 			utilWriteInt32(infoportts, mapentry->portts);
 			utilByteArrayToHexstring(&report[pos], ((4 * 2) + 2), infoportts, 4);
 			pos = pos + (4 * 2);
+			report[pos++] = ' ';
+			report[pos++] = ' ';
+			utilWriteInt32(infoents, (tnow - mapentry->ents));
+			utilByteArrayToHexstring(&report[pos], ((4 * 2) + 2), infoents, 4);
+			pos = pos + (4 * 2);
 			report[pos++] = '\n';
 		}
 		i++;
@@ -168,14 +162,9 @@ static void switchStatus(struct s_switch_state *switchstate, char *report, const
 // Create switchstate structure.
 static int switchCreate(struct s_switch_state *switchstate) {
 	if(mapCreate(&switchstate->mactable, switch_MACMAP_SIZE, switch_MACADDR_SIZE, sizeof(struct s_switch_mactable_entry))) {
-		if(ndp6Create(&switchstate->ndpstate)) {
-			mapEnableReplaceOld(&switchstate->mactable);
-			mapInit(&switchstate->mactable);
-			switchstate->genframe_len = 0;
-			return 1;
-		}
-		mapDestroy(&switchstate->mactable);
-		return 0;
+		mapEnableReplaceOld(&switchstate->mactable);
+		mapInit(&switchstate->mactable);
+		return 1;
 	}
 	return 0;
 }
@@ -183,7 +172,6 @@ static int switchCreate(struct s_switch_state *switchstate) {
 
 // Destroy switchstate structure.
 static void switchDestroy(struct s_switch_state *switchstate) {
-	ndp6Destroy(&switchstate->ndpstate);
 	mapDestroy(&switchstate->mactable);
 }
 

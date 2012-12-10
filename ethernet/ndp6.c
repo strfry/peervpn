@@ -27,9 +27,10 @@
 
 
 // Constants.
-#define ndp6_TABLE_SIZE 16384
+#define ndp6_TABLE_SIZE 1024
 #define ndp6_ADDR_SIZE 16
 #define ndp6_MAC_SIZE 6
+#define ndp6_TIMEOUT 86400
 
 
 // Constraints.
@@ -41,39 +42,45 @@
 #endif
 
 
-// The NDP6 structure.
+// NDP6 structures.
+struct s_ndp6_ndptable_entry {
+	unsigned char mac[ndp6_MAC_SIZE];
+	int portid;
+	int portts;
+	int ents;
+};
 struct s_ndp6_state {
 	struct s_map ndptable;
 };
 
 
-// Scan Ethernet frame for NDP messages.
-static void ndp6ScanFrame(struct s_ndp6_state *ndpstate, const unsigned char *frame, const int frame_len) {
+// Learn MAC+PortID+PortTS of incoming IPv6 packet.
+static void ndp6PacketIn(struct s_ndp6_state *ndpstate, const unsigned char *frame, const int frame_len, const int portid, const int portts) {
+	struct s_ndp6_ndptable_entry mapentry;
 	const unsigned char *ipv6addr;
 	const unsigned char *macaddr;
-	if(frame_len >= 86) {
-		if(((frame[14] >> 4) == 6) && (frame[20] == 0x3a)) {
-			if(frame[54] == 0x88) {
-				// neighbor advertisement
-				ipv6addr = &frame[62];
-				macaddr = &frame[80];
-				mapSet(&ndpstate->ndptable, ipv6addr, macaddr);
-			}
-			if(frame[54] == 0x87) {
-				// neighbor solicitation
-				ipv6addr = &frame[22];
-				macaddr = &frame[80];
-				mapSet(&ndpstate->ndptable, ipv6addr, macaddr);
-			}
+	if(frame_len > 54) {
+		ipv6addr = &frame[22];
+		macaddr = &frame[6];
+		if(
+		((macaddr[0] & 0x01) == 0) &&	// unicast source MAC
+		((frame[14] >> 4) == 6) &&	// packet is IPv6
+		(frame[21] == 0xff) &&		// TTL is 255
+		(ipv6addr[0] != 0xff)		// unicast source address
+		) {
+			memcpy(mapentry.mac, macaddr, ndp6_MAC_SIZE);
+			mapentry.portid = portid;
+			mapentry.portts = portts;
+			mapentry.ents = utilGetTime();
+			mapSet(&ndpstate->ndptable, ipv6addr, &mapentry);
 		}
 	}
 }
 
 
 // Generate neighbor advertisement. Returns length of generated answer.
-static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const unsigned char *src_addr, const unsigned char *dest_addr, const unsigned char *src_mac, const unsigned char *dest_mac) {
+static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const unsigned char *src_addr, const unsigned char *dest_addr, const unsigned char *src_mac, const unsigned char *dest_mac, const int solicited) {
 	struct s_checksum checksum;
-	unsigned char ph[16];
 	int i;
 	uint16_t u;
 	if(outbuf_len >= 86) {
@@ -83,8 +90,12 @@ static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const un
 		memcpy(&outbuf[12], "\x86\xdd\x60\x00\x00\x00\x00\x20\x3a\xff", 10); // IPv6 header (payloadlength 32, nextheader ICMPv6)
 		memcpy(&outbuf[22], src_addr, ndp6_ADDR_SIZE); // source IPv6 address
 		memcpy(&outbuf[38], dest_addr, ndp6_ADDR_SIZE); // destination IPv6 address
-		memcpy(&outbuf[54], "\x88\x00\x00\x00", 4); // ICMPv6 header
-		memcpy(&outbuf[58], "\x00\x00\x00\x00", 4); // flags
+		if(solicited) {
+			memcpy(&outbuf[54], "\x88\x00\x00\x00\x40\x00\x00\x00", 8); // ICMPv6 header + flags (solicited)
+		}
+		else {
+			memcpy(&outbuf[54], "\x88\x00\x00\x00\x00\x00\x00\x00", 8); // ICMPv6 header + flags (none)
+		}
 		memcpy(&outbuf[62], src_addr, ndp6_ADDR_SIZE); // target IPv6 address
 		memcpy(&outbuf[78], "\x02\x01", 2); // ICMPv6 option header
 		memcpy(&outbuf[80], src_mac, ndp6_MAC_SIZE); // target MAC address
@@ -92,10 +103,10 @@ static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const un
 		// calculate checksum
 		checksumZero(&checksum); // reset checksum
 		for(i=0; i<32; i=i+2) checksumAdd(&checksum, *((uint16_t *)(&outbuf[22+i]))); // IPv6 pseudoheader src+dest address
-		memset(ph, 0, 16);
-		utilWriteInt32(&ph[0], 32); // payload length
-		utilWriteInt32(&ph[4], 58); // nextheader
-		for(i=0; i<8; i=i+2) checksumAdd(&checksum, *((uint16_t *)(&ph[i]))); // IPv6 pseudoheader payload length & nextheader
+		checksumAdd(&checksum, *((uint16_t *)(&outbuf[18]))); // IPv6 pseudoheader payload length
+		memcpy(&outbuf[56], "\x00\x3a", 2);
+		checksumAdd(&checksum, *((uint16_t *)(&outbuf[56]))); // IPv6 pseudoheader nextheader
+		memcpy(&outbuf[56], "\x00\x00", 2);
 		for(i=0; i<32; i=i+2) checksumAdd(&checksum, *((uint16_t *)(&outbuf[54+i]))); // ICMPv6 message
 
 		// write checksum
@@ -108,22 +119,37 @@ static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const un
 
 
 // Scan Ethernet frame for neighbour solicitation and generate answer neighbor advertisement. Returns length of generated answer.
-static int ndp6GenAdv(struct s_ndp6_state *ndpstate, const unsigned char *frame, const int frame_len, unsigned char *advbuf, const int advbuf_len) {
+static int ndp6GenAdv(struct s_ndp6_state *ndpstate, const unsigned char *frame, const int frame_len, unsigned char *advbuf, const int advbuf_len, int *portid, int *portts) {
+	struct s_ndp6_ndptable_entry *mapentry;
 	const unsigned char *ipv6addr;
 	const unsigned char *macaddr;
 	const unsigned char *reqipv6addr;
 	const unsigned char *resmacaddr;
-	if(frame_len >= 86) {
-		if(((frame[14] >> 4) == 6) && (frame[20] == 0x3a) && (frame[54] == 0x87)) {
-			ipv6addr = &frame[22];
-			macaddr = &frame[80];
-			
+	if(frame_len == 86) {
+		ipv6addr = &frame[22];
+		macaddr = &frame[6];
+		if(
+		((macaddr[0] & 0x01) == 0) &&	// unicast source MAC
+		((frame[14] >> 4) == 6) &&	// packet is IPv6
+		(frame[20] == 0x3a) &&		// packet is ICMPv6
+		(frame[21] == 0xff) &&		// TTL is 255
+		(ipv6addr[0] != 0xff) &&	// unicast source address
+		(frame[54] == 0x87) &&		// packet is neighbor solicitation
+		(memcmp(macaddr, &frame[80], ndp6_MAC_SIZE) == 0)	// source mac addresses match
+		) {
 			// resolve requested ipv6 address
 			reqipv6addr = &frame[62];
-			resmacaddr = mapGet(&ndpstate->ndptable, reqipv6addr);
-			if(resmacaddr != NULL) {
-				// generate answer
-				return ndp6GenAdvFrame(advbuf, advbuf_len, reqipv6addr, ipv6addr, resmacaddr, macaddr);
+			mapentry = mapGet(&ndpstate->ndptable, reqipv6addr);
+			if(mapentry != NULL) {
+				if((utilGetTime() - mapentry->ents) < ndp6_TIMEOUT) {
+					// valid entry found
+					resmacaddr = mapentry->mac;
+					*portid = mapentry->portid;
+					*portts = mapentry->portts;
+
+					// generate answer
+					return ndp6GenAdvFrame(advbuf, advbuf_len, reqipv6addr, ipv6addr, resmacaddr, macaddr, 1);
+				}
 			}
 		}
 	}
@@ -133,25 +159,32 @@ static int ndp6GenAdv(struct s_ndp6_state *ndpstate, const unsigned char *frame,
 
 // Generate NDP table status report.
 static void ndp6Status(struct s_ndp6_state *ndpstate, char *report, const int report_len) {
+	int tnow = utilGetTime();
+	struct s_map *map = &ndpstate->ndptable;
+	struct s_ndp6_ndptable_entry *mapentry;
 	int pos = 0;
-	int size = mapGetMapSize(&ndpstate->ndptable);
-	int maxpos = (((size + 2) * (60)) + 1);
+	int size = mapGetMapSize(map);
+	int maxpos = (((size + 2) * (90)) + 1);
 	unsigned char infoipv6addr[ndp6_ADDR_SIZE];
 	unsigned char infomacaddr[ndp6_MAC_SIZE];
+	unsigned char infoportid[4];
+	unsigned char infoportts[4];
+	unsigned char infoents[4];
 	int i;
 	int j;
 	
 	if(maxpos > report_len) { maxpos = report_len; }
 	
-	memcpy(&report[pos], "IPv6 address                             MAC address      ", 58);
-	pos = pos + 58;
+	memcpy(&report[pos], "IPv6                                     MAC                PortID    PortTS    LastPkt ", 88);
+	pos = pos + 88;
 	report[pos++] = '\n';
 
 	i = 0;
 	while(i < size && pos < maxpos) {
-		if(mapIsValidID(&ndpstate->ndptable, i)) {
-			memcpy(infoipv6addr, mapGetKeyByID(&ndpstate->ndptable, i), ndp6_ADDR_SIZE);
-			memcpy(infomacaddr, mapGetValueByID(&ndpstate->ndptable, i), ndp6_MAC_SIZE);
+		if(mapIsValidID(map, i)) {
+			mapentry = (struct s_ndp6_ndptable_entry *)mapGetValueByID(&ndpstate->ndptable, i);
+			memcpy(infoipv6addr, mapGetKeyByID(map, i), ndp6_ADDR_SIZE);
+			memcpy(infomacaddr, mapentry->mac, ndp6_MAC_SIZE);
 			j = 0;
 			while(j < (ndp6_ADDR_SIZE / 2)) {
 				utilByteArrayToHexstring(&report[pos + (j * 5)], (4 + 2), &infoipv6addr[(j*2)], 2);
@@ -168,6 +201,21 @@ static void ndp6Status(struct s_ndp6_state *ndpstate, char *report, const int re
 				j++;
 			}
 			pos = pos + ((ndp6_MAC_SIZE * 2) + (ndp6_MAC_SIZE) - 1);
+			report[pos++] = ' ';
+			report[pos++] = ' ';
+			utilWriteInt32(infoportid, mapentry->portid);
+			utilByteArrayToHexstring(&report[pos], ((4 * 2) + 2), infoportid, 4);
+			pos = pos + (4 * 2);
+			report[pos++] = ' ';
+			report[pos++] = ' ';
+			utilWriteInt32(infoportts, mapentry->portts);
+			utilByteArrayToHexstring(&report[pos], ((4 * 2) + 2), infoportts, 4);
+			pos = pos + (4 * 2);
+			report[pos++] = ' ';
+			report[pos++] = ' ';
+			utilWriteInt32(infoents, (tnow - mapentry->ents));
+			utilByteArrayToHexstring(&report[pos], ((4 * 2) + 2), infoents, 4);
+			pos = pos + (4 * 2);
 			report[pos++] = '\n';
 		}
 		i++;
@@ -178,7 +226,7 @@ static void ndp6Status(struct s_ndp6_state *ndpstate, char *report, const int re
 
 // Create NDP6 structure.
 static int ndp6Create(struct s_ndp6_state *ndpstate) {
-	if(mapCreate(&ndpstate->ndptable, ndp6_TABLE_SIZE, ndp6_ADDR_SIZE, ndp6_MAC_SIZE)) {
+	if(mapCreate(&ndpstate->ndptable, ndp6_TABLE_SIZE, ndp6_ADDR_SIZE, sizeof(struct s_ndp6_ndptable_entry))) {
 		mapEnableReplaceOld(&ndpstate->ndptable);
 		mapInit(&ndpstate->ndptable);
 		return 1;

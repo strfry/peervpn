@@ -17,6 +17,47 @@
  ***************************************************************************/
 
 
+struct s_initconfig {
+	char sourceip[CONFPARSER_NAMEBUF_SIZE+1];
+	char sourceport[CONFPARSER_NAMEBUF_SIZE+1];
+	char tapname[CONFPARSER_NAMEBUF_SIZE+1];
+	char userstr[CONFPARSER_NAMEBUF_SIZE+1];
+	char groupstr[CONFPARSER_NAMEBUF_SIZE+1];
+	char chrootstr[CONFPARSER_NAMEBUF_SIZE+1];
+	char networkname[CONFPARSER_NAMEBUF_SIZE+1];
+	char ifconfig4[CONFPARSER_NAMEBUF_SIZE+1];
+	char ifconfig6[CONFPARSER_NAMEBUF_SIZE+1];
+	char upcmd[CONFPARSER_NAMEBUF_SIZE+1];
+	char initpeers[CONFPARSER_NAMEBUF_SIZE+1];
+	char engines[CONFPARSER_NAMEBUF_SIZE+1];
+	char password[CONFPARSER_NAMEBUF_SIZE+1];
+	int password_len;
+	int enableindirect;
+	int enablerelay;
+	int enableeth;
+	int enablendpcache;
+	int enableipv4;
+	int enableipv6;
+	int enableprivdrop;
+	int enableconsole;
+	int sockmark;
+};
+
+static void throwError(char *msg) {
+	if(msg != NULL) printf("error: %s\n",msg);
+	exit(1);
+}
+
+static int isWhitespaceChar(char c) {
+	switch(c) {
+		case ' ':
+		case '\t':
+			return 1;
+		default:
+			return 0;
+	}
+}
+
 static int parseConfigInt(char *str) {
 	int n = atoi(str);
 	if(n < 0) return -1;

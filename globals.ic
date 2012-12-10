@@ -19,7 +19,7 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 30
+#define PEERVPN_VERSION_MINOR 31
 
 
 // compile time options & timing parameters
@@ -32,40 +32,14 @@
 #define CONFPARSER_NAMEBUF_SIZE 512
 
 
-// structures
-struct s_initconfig {
-	char sourceip[CONFPARSER_NAMEBUF_SIZE+1];
-	char sourceport[CONFPARSER_NAMEBUF_SIZE+1];
-	char tapname[CONFPARSER_NAMEBUF_SIZE+1];
-	char userstr[CONFPARSER_NAMEBUF_SIZE+1];
-	char groupstr[CONFPARSER_NAMEBUF_SIZE+1];
-	char chrootstr[CONFPARSER_NAMEBUF_SIZE+1];
-	char networkname[CONFPARSER_NAMEBUF_SIZE+1];
-	char ifconfig4[CONFPARSER_NAMEBUF_SIZE+1];
-	char ifconfig6[CONFPARSER_NAMEBUF_SIZE+1];
-	char upcmd[CONFPARSER_NAMEBUF_SIZE+1];
-	char initpeers[CONFPARSER_NAMEBUF_SIZE+1];
-	char engines[CONFPARSER_NAMEBUF_SIZE+1];
-	char password[CONFPARSER_NAMEBUF_SIZE+1];
-	int password_len;
-	int enableindirect;
-	int enablerelay;
-	int enableeth;
-	int enablendpcache;
-	int enableipv4;
-	int enableipv6;
-	int enableprivdrop;
-	int enableconsole;
-	int sockmark;
-};
-
-
 // global variables
 struct s_io_state iostate;
 P2PSEC_CTX *g_p2psec;
 int g_mainloop;
 char g_initpeers[INITPEER_STORAGE+1];
 struct s_switch_state g_switchstate;
+struct s_ndp6_state g_ndpstate;
+struct s_virtserv_state g_virtserv;
 int g_enableconsole;
 int g_enableeth;
 int g_enablendpcache;

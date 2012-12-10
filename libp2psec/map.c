@@ -54,6 +54,18 @@ static void mapDisableReplaceOld(struct s_map *map) {
 }
 
 
+// Return the size of a stored key.
+static int mapGetKeySize(struct s_map *map) {
+	return map->key_size;
+}
+
+
+// Return the size of a stored value.
+static int mapGetValueSize(struct s_map *map) {
+	return map->value_size;
+}
+
+
 // Return 1 if ID is valid.
 static int mapIsValidID(struct s_map *map, const int id) {
 	return idspIsValid(&map->idsp, id);
@@ -62,7 +74,7 @@ static int mapIsValidID(struct s_map *map, const int id) {
 
 // Return a pointer to key[id].
 static void *mapGetKeyByID(struct s_map *map, const int id) {
-	return &map->key[id * map->key_size];
+	return &map->key[id * mapGetKeySize(map)];
 }
 
 
@@ -75,7 +87,7 @@ static int mapComparePrefixExt(struct s_map *map, const int id, const void *pref
 
 // Compare stored key to an external key.
 static int mapCompareKeysExt(struct s_map *map, const int id, const void *key) {
-	return mapComparePrefixExt(map, id, key, map->key_size);
+	return mapComparePrefixExt(map, id, key, mapGetKeySize(map));
 }
 
 
@@ -140,7 +152,7 @@ static int mapSplayPrefix(struct s_map *map, const void *prefix, const int prefi
 
 // Move the node with the specified key to the root. Return 1 if the key has been found, or 0 if not.
 static int mapSplayKey(struct s_map *map, const void *key) {
-	return mapSplayPrefix(map, key, map->key_size);
+	return mapSplayPrefix(map, key, mapGetKeySize(map));
 }
 
 
@@ -152,65 +164,9 @@ static void mapInit(struct s_map *map) {
 }
 
 
-// Allocate memory for the map.
-static int mapCreate(struct s_map *map, const int map_size, const int key_size, const int value_size) {
-	// check parameters
-	if(!((map_size > 0) && (key_size > 0) && (value_size > 0))) return 0;
-	
-	// create map
-	void *keymem = NULL;
-	void *valuemem = NULL;
-	int *leftmem = NULL;
-	int *rightmem = NULL;
-	if((keymem = malloc(map_size * key_size)) == NULL) { return 0; }
-	if((valuemem = malloc(map_size * value_size)) == NULL) { free(keymem); return 0; }
-	if((leftmem = malloc((map_size+1) * sizeof(int))) == NULL) { free(valuemem); free(keymem); return 0; }
-	if((rightmem = malloc((map_size+1) * sizeof(int))) == NULL) { free(leftmem); free(valuemem); free(keymem); return 0; }
-	if(!idspCreate(&map->idsp, map_size)) { free(rightmem); free(leftmem); free(valuemem); free(keymem); return 0; }
-	map->key_size = key_size;
-	map->value_size = value_size;
-	map->key = keymem;
-	map->value = valuemem;
-	map->left = leftmem;
-	map->right = rightmem;
-	mapInit(map);
-	mapDisableReplaceOld(map);
-	
-	return 1;
-}
-
-
-// Free the memory used by the map.
-static int mapDestroy(struct s_map *map) {	
-	if(!((map != NULL) && (map->key != NULL) && (map->value != NULL) && (map->left != NULL) && (map->right != NULL))) return 0;
-	idspDestroy(&map->idsp);
-	free(map->right);
-	free(map->left);
-	free(map->value);
-	free(map->key);
-	map->right = NULL;
-	map->left = NULL;
-	map->value = NULL;
-	map->key = NULL;
-	return 1;
-}
-
-
 // Return the map size.
 static int mapGetMapSize(struct s_map *map) {
 	return idspSize(&map->idsp);
-}
-
-
-// Return the size of a stored key.
-static int mapGetKeySize(struct s_map *map) {
-	return map->key_size;
-}
-
-
-// Return the size of a stored value.
-static int mapGetValueSize(struct s_map *map) {
-	return map->value_size;
 }
 
 
@@ -239,7 +195,7 @@ static int mapGetPrefixID(struct s_map *map, const void *prefix, const int prefi
 
 // Get the ID of specified key. Returns the ID or -1 if the key is not found.
 static int mapGetKeyID(struct s_map *map, const void *key) {
-	return mapGetPrefixID(map, key, map->key_size);
+	return mapGetPrefixID(map, key, mapGetKeySize(map));
 }
 
 
@@ -287,13 +243,13 @@ static int mapGetOldKeyID(struct s_map *map) {
 
 // Set new value[id].
 static void mapSetValueByID(struct s_map *map, const int id, const void *value) {
-	memcpy(&map->value[id * map->value_size], value, map->value_size);
+	memcpy(&map->value[id * mapGetValueSize(map)], value, mapGetValueSize(map));
 }
 
 
 // Return a pointer to value[id].
 static void *mapGetValueByID(struct s_map *map, const int id) {
-	return &map->value[id * map->value_size];
+	return &map->value[id * mapGetValueSize(map)];
 }
 
 
@@ -392,8 +348,8 @@ static int mapAddReturnID(struct s_map *map, const void *key, const void *value)
 	}
 	
 	// copy key/value to data structure
-	memcpy(mapGetKeyByID(map, nodeid), key, map->key_size);
-	memcpy(mapGetValueByID(map, nodeid), value, map->value_size);
+	memcpy(mapGetKeyByID(map, nodeid), key, mapGetKeySize(map));
+	memcpy(mapGetValueByID(map, nodeid), value, mapGetValueSize(map));
 	
 	// update root ID
 	map->rootid = nodeid;
@@ -453,7 +409,51 @@ static void *mapGetN(struct s_map *map, const void *prefix, const int prefixlen)
 
 // Return a pointer to the value of the specified key.
 static void *mapGet(struct s_map *map, const void *key) {
-	return mapGetN(map, key, map->key_size);
+	return mapGetN(map, key, mapGetKeySize(map));
+}
+
+
+// Allocate memory for the map.
+static int mapCreate(struct s_map *map, const int map_size, const int key_size, const int value_size) {
+	// check parameters
+	if(!((map_size > 0) && (key_size > 0) && (value_size > 0))) return 0;
+	
+	// create map
+	void *keymem = NULL;
+	void *valuemem = NULL;
+	int *leftmem = NULL;
+	int *rightmem = NULL;
+	if((keymem = malloc(map_size * key_size)) == NULL) { return 0; }
+	if((valuemem = malloc(map_size * value_size)) == NULL) { free(keymem); return 0; }
+	if((leftmem = malloc((map_size+1) * sizeof(int))) == NULL) { free(valuemem); free(keymem); return 0; }
+	if((rightmem = malloc((map_size+1) * sizeof(int))) == NULL) { free(leftmem); free(valuemem); free(keymem); return 0; }
+	if(!idspCreate(&map->idsp, map_size)) { free(rightmem); free(leftmem); free(valuemem); free(keymem); return 0; }
+	map->key_size = key_size;
+	map->value_size = value_size;
+	map->key = keymem;
+	map->value = valuemem;
+	map->left = leftmem;
+	map->right = rightmem;
+	mapInit(map);
+	mapDisableReplaceOld(map);
+	
+	return 1;
+}
+
+
+// Free the memory used by the map.
+static int mapDestroy(struct s_map *map) {	
+	if(!((map != NULL) && (map->key != NULL) && (map->value != NULL) && (map->left != NULL) && (map->right != NULL))) return 0;
+	idspDestroy(&map->idsp);
+	free(map->right);
+	free(map->left);
+	free(map->value);
+	free(map->key);
+	map->right = NULL;
+	map->left = NULL;
+	map->value = NULL;
+	map->key = NULL;
+	return 1;
 }
 
 
