@@ -19,7 +19,7 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 31
+#define PEERVPN_VERSION_MINOR 32
 
 
 // compile time options & timing parameters
@@ -43,4 +43,5 @@ struct s_virtserv_state g_virtserv;
 int g_enableconsole;
 int g_enableeth;
 int g_enablendpcache;
+int g_enablevirtserv;
 int g_enableengines;

@@ -35,7 +35,7 @@
 #define peermgt_MSGSIZE_MAX 8192
 
 
-// Ping buffer size
+// Ping buffer size.
 #define peermgt_PINGBUF_SIZE 64
 
 
@@ -43,7 +43,7 @@
 #define peermgt_FRAGBUF_COUNT 64
 
 
-// Maximum packet decode recursion depth
+// Maximum packet decode recursion depth.
 #define peermgt_DECODE_RECURSION_MAX_DEPTH 2
 
 
@@ -389,14 +389,20 @@ static int peermgtGetRemoteFlag(struct s_peermgt *mgt, const int peerid, const i
 static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermgt *mgt) {
 	const int peerinfo_size = (packet_PEERID_SIZE + nodeid_SIZE + peeraddr_SIZE);
 	int peerinfo_max = mapGetKeyCount(&mgt->map);
-	int peerinfo_count = 0;
+	int peerinfo_count;
+	int peerinfo_limit;
 	int pos = 4;
 	int i = 0;
 	int infoid;
 	unsigned char infocid[packet_PEERID_SIZE];
 	struct s_nodeid infonid;
 
-	while((i < peerinfo_max) && (pos + peerinfo_size < data->pl_buf_size)) {
+	// randomize maximum length of peerinfo packet
+	if((abs(cryptoRandInt()) % 2) == 1) { peerinfo_limit = 7; } else { peerinfo_limit = 5; }
+
+	// generate peerinfo entries
+	peerinfo_count = 0;
+	while((i < peerinfo_max) && (peerinfo_count < peerinfo_limit) && (pos + peerinfo_size < data->pl_buf_size)) {
 		infoid = peermgtGetNextID(mgt);
 		if((infoid > 0) && (mgt->data[infoid].state == peermgt_STATE_COMPLETE) && (!peeraddrIsInternal(&mgt->data[infoid].remoteaddr))) {
 			utilWriteInt32(infocid, infoid);
@@ -409,8 +415,11 @@ static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermg
 		}
 		i++;
 	}
+
+	// write peerinfo_count
 	utilWriteInt32(data->pl_buf, peerinfo_count);
 
+	// set packet metadata
 	data->pl_length = (4 + (peerinfo_count * peerinfo_size));
 	data->pl_type = packet_PLTYPE_PEERINFO;
 	data->pl_options = 0;
@@ -799,7 +808,7 @@ static int peermgtDecodePacketPeerinfo(struct s_peermgt *mgt, const struct s_pac
 				relayid = 0;
 				relayct = 0;
 			}
-			r = (abs(cryptoRand64()) % peerinfo_count); // randomly select a peer
+			r = (abs(cryptoRandInt()) % peerinfo_count); // randomly select a peer
 			for(i=0; i<peerinfo_count; i++) {
 				pos = (4 + (r * peerinfo_size));
 				relaypeerid = utilReadInt32(&data->pl_buf[pos]);
@@ -1138,18 +1147,19 @@ static void peermgtStatus(struct s_peermgt *mgt, char *report, const int report_
 	int tnow = utilGetTime();
 	int pos = 0;
 	int size = mapGetMapSize(&mgt->map);
-	int maxpos = (((size + 2) * (156)) + 1);
+	int maxpos = (((size + 2) * (160)) + 1);
 	unsigned char infoid[packet_PEERID_SIZE];
 	unsigned char infostate[1];
 	unsigned char infoflags[2];
+	unsigned char inforq[1];
 	unsigned char timediff[4];
 	struct s_nodeid nodeid;
 	int i = 0;
 	
 	if(maxpos > report_len) { maxpos = report_len; }
 	
-	memcpy(&report[pos], "PeerID    NodeID                                                            Address                                       Status  LastPkt   SessAge   Flag", 154);
-	pos = pos + 154;
+	memcpy(&report[pos], "PeerID    NodeID                                                            Address                                       Status  LastPkt   SessAge   Flag  RQ", 158);
+	pos = pos + 158;
 	report[pos++] = '\n';
 	
 	while(i < size && pos < maxpos) {
@@ -1185,6 +1195,11 @@ static void peermgtStatus(struct s_peermgt *mgt, char *report, const int report_
 			utilWriteInt16(infoflags, mgt->data[i].remoteflags);
 			utilByteArrayToHexstring(&report[pos], 6, infoflags, 2);
 			pos = pos + 4;
+			report[pos++] = ' ';
+			report[pos++] = ' ';
+			inforq[0] = seqRQ(&mgt->data[i].seq);
+			utilByteArrayToHexstring(&report[pos], 4, inforq, 1);
+			pos = pos + 2;
 			report[pos++] = '\n';
 		}
 		i++;

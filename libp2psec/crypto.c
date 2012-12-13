@@ -87,11 +87,19 @@ static void cryptoRand(unsigned char *buf, const int buf_size) {
 
 
 // generate random int64 number
-static int cryptoRand64() {
+static int64_t cryptoRand64() {
 	int64_t n;
 	unsigned char *buf = (unsigned char *)&n;
 	int len = sizeof(int64_t);
 	cryptoRand(buf, len);
+	return n;
+}
+
+
+// generate random int number
+static int cryptoRandInt() {
+	int n;
+	n = cryptoRand64();
 	return n;
 }
 

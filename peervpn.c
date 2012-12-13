@@ -60,6 +60,7 @@ int main(int argc, char **argv) {
 	config.password_len = 0;
 	config.enableeth = 0;
 	config.enablendpcache = 0;
+	config.enablevirtserv = 0;
 	config.enablerelay = 0;
 	config.enableindirect = 0;
 	config.enableconsole = 0;

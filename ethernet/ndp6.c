@@ -65,21 +65,22 @@ static void ndp6PacketIn(struct s_ndp6_state *ndpstate, const unsigned char *fra
 		if(
 		((macaddr[0] & 0x01) == 0) &&	// unicast source MAC
 		((frame[14] >> 4) == 6) &&	// packet is IPv6
-		(frame[21] == 0xff) &&		// TTL is 255
 		(ipv6addr[0] != 0xff)		// unicast source address
 		) {
-			memcpy(mapentry.mac, macaddr, ndp6_MAC_SIZE);
-			mapentry.portid = portid;
-			mapentry.portts = portts;
-			mapentry.ents = utilGetTime();
-			mapSet(&ndpstate->ndptable, ipv6addr, &mapentry);
+			if((mapGet(&ndpstate->ndptable, ipv6addr) != NULL) || (frame[21] == 0xff)) { // TTL is 255 or existing entry can be updated
+				memcpy(mapentry.mac, macaddr, ndp6_MAC_SIZE);
+				mapentry.portid = portid;
+				mapentry.portts = portts;
+				mapentry.ents = utilGetTime();
+				mapSet(&ndpstate->ndptable, ipv6addr, &mapentry);
+			}
 		}
 	}
 }
 
 
 // Generate neighbor advertisement. Returns length of generated answer.
-static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const unsigned char *src_addr, const unsigned char *dest_addr, const unsigned char *src_mac, const unsigned char *dest_mac, const int solicited) {
+static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const unsigned char *src_addr, const unsigned char *dest_addr, const unsigned char *src_mac, const unsigned char *dest_mac) {
 	struct s_checksum checksum;
 	int i;
 	uint16_t u;
@@ -90,12 +91,7 @@ static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const un
 		memcpy(&outbuf[12], "\x86\xdd\x60\x00\x00\x00\x00\x20\x3a\xff", 10); // IPv6 header (payloadlength 32, nextheader ICMPv6)
 		memcpy(&outbuf[22], src_addr, ndp6_ADDR_SIZE); // source IPv6 address
 		memcpy(&outbuf[38], dest_addr, ndp6_ADDR_SIZE); // destination IPv6 address
-		if(solicited) {
-			memcpy(&outbuf[54], "\x88\x00\x00\x00\x40\x00\x00\x00", 8); // ICMPv6 header + flags (solicited)
-		}
-		else {
-			memcpy(&outbuf[54], "\x88\x00\x00\x00\x00\x00\x00\x00", 8); // ICMPv6 header + flags (none)
-		}
+		memcpy(&outbuf[54], "\x88\x00\x00\x00\x40\x00\x00\x00", 8); // ICMPv6 header + solicited flag
 		memcpy(&outbuf[62], src_addr, ndp6_ADDR_SIZE); // target IPv6 address
 		memcpy(&outbuf[78], "\x02\x01", 2); // ICMPv6 option header
 		memcpy(&outbuf[80], src_mac, ndp6_MAC_SIZE); // target MAC address
@@ -104,9 +100,7 @@ static int ndp6GenAdvFrame(unsigned char *outbuf, const int outbuf_len, const un
 		checksumZero(&checksum); // reset checksum
 		for(i=0; i<32; i=i+2) checksumAdd(&checksum, *((uint16_t *)(&outbuf[22+i]))); // IPv6 pseudoheader src+dest address
 		checksumAdd(&checksum, *((uint16_t *)(&outbuf[18]))); // IPv6 pseudoheader payload length
-		memcpy(&outbuf[56], "\x00\x3a", 2);
-		checksumAdd(&checksum, *((uint16_t *)(&outbuf[56]))); // IPv6 pseudoheader nextheader
-		memcpy(&outbuf[56], "\x00\x00", 2);
+		memcpy(&u, "\x00\x3a", 2); checksumAdd(&checksum, u); // IPv6 pseudoheader nextheader
 		for(i=0; i<32; i=i+2) checksumAdd(&checksum, *((uint16_t *)(&outbuf[54+i]))); // ICMPv6 message
 
 		// write checksum
@@ -148,7 +142,7 @@ static int ndp6GenAdv(struct s_ndp6_state *ndpstate, const unsigned char *frame,
 					*portts = mapentry->portts;
 
 					// generate answer
-					return ndp6GenAdvFrame(advbuf, advbuf_len, reqipv6addr, ipv6addr, resmacaddr, macaddr, 1);
+					return ndp6GenAdvFrame(advbuf, advbuf_len, reqipv6addr, ipv6addr, resmacaddr, macaddr);
 				}
 			}
 		}

@@ -183,7 +183,15 @@ void init(struct s_initconfig *initconfig) {
 	else {
 		g_enablendpcache = 0;
 	}
-	
+
+	// enable virtual service
+	if(initconfig->enablevirtserv) {
+		g_enablevirtserv = 1;
+	}
+	else {
+		g_enablevirtserv = 0;
+	}
+
 	// load OpenSSL engines
 	ENGINE_load_builtin_engines();
 	ENGINE_register_all_complete();
@@ -251,7 +259,7 @@ void init(struct s_initconfig *initconfig) {
 	
 	// initialize virtual service
 	if(!virtservCreate(&g_virtserv)) throwError("failed to setup virtserv!\n");
-	
+
 	// show client & network id
 	printf("\n");
 	utilByteArrayToHexstring(str, 256, mapGetKeyByID(&g_p2psec->mgt.map, 0), p2psecGetNodeIDSize());

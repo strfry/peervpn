@@ -113,7 +113,7 @@ static void mainLoop() {
 		// check for ethernet frames on tap device
 		if(g_enableeth > 0) {
 			if((len = (ioReadTap(&iostate, msgbuf, 4096))) > 0) {
-				if((g_enablendpcache) && ((tapmsg_len = (virtservFrame(&g_virtserv, tapmsgbuf, 1024, msgbuf, len))) > 0)) {
+				if((g_enablevirtserv) && ((tapmsg_len = (virtservFrame(&g_virtserv, tapmsgbuf, 1024, msgbuf, len))) > 0)) {
 					// virtual service frame
 					ioWriteTap(&iostate, tapmsgbuf, tapmsg_len);
 				}
