@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2013 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -63,10 +63,6 @@ void init(struct s_initconfig *initconfig) {
 	char str[256];
 	char tapname[256];
 
-	// initialize signal handler
-	g_mainloop = 1;
-	signal(SIGINT, sighandler);
-
 	// create data structures
 	ioCreate(&iostate);
 
@@ -109,7 +105,7 @@ void init(struct s_initconfig *initconfig) {
 			g_enableconsole = 1;
 		}
 		else {
-			throwError("could not initialize console!");
+			throwError("Could not initialize console!");
 		}
 	}
 	else {
@@ -138,7 +134,7 @@ void init(struct s_initconfig *initconfig) {
 		}
 	}
 	if(i < 1) {
-		throwError("could not open any sockets!");
+		throwError("Could not open any sockets! This might be caused by:\n- another open socket on the same port\n- invalid port number and/or local IP address\n- insufficient privileges");
 	}
 
 	// open tap device
@@ -146,7 +142,8 @@ void init(struct s_initconfig *initconfig) {
 		printf("opening TAP device...\n");
 		if(!ioOpenTap(&iostate, tapname, initconfig->tapname)) {
 			g_enableeth = 0;
-			throwError("tap device could not be opened!");
+			printf("   failed.\n");
+			throwError("The TAP device could not be opened! This might be caused by:\n- a missing TAP device driver,\n- a blocked TAP device (try a different name),\n- insufficient privileges (try running as the root/administrator user).");
 		}
 		else {
 			g_enableeth = 1;
@@ -154,19 +151,19 @@ void init(struct s_initconfig *initconfig) {
 			if(strlen(initconfig->ifconfig4) > 0) {
 				// configure IPv4 address
 				if(!(ifconfig4(tapname, strlen(tapname), initconfig->ifconfig4, strlen(initconfig->ifconfig4)))) {
-					logWarning("could not automatically configure IPv4 address!");
+					logWarning("Could not automatically configure IPv4 address!");
 				}
 			}
 			if(strlen(initconfig->ifconfig6) > 0) {
 				// configure IPv6 address
 				if(!(ifconfig6(tapname, strlen(tapname), initconfig->ifconfig6, strlen(initconfig->ifconfig6)))) {
-					logWarning("could not automatically configure IPv6 address!");
+					logWarning("Could not automatically configure IPv6 address!");
 				}
 			}
 			if(strlen(initconfig->upcmd) > 0) {
 				// execute shell command
 				if((ifconfigExec(initconfig->upcmd)) < 0) {
-					logWarning("upcmd failed!");
+					logWarning("The command specified in the \"upcmd\" option returned an error!");
 				}
 			}
 		}
@@ -231,8 +228,8 @@ void init(struct s_initconfig *initconfig) {
 	// initialize p2p core
 	printf("preparing P2P engine...\n");
 	g_p2psec = p2psecCreate();
-	if(!p2psecLoadDefaults(g_p2psec)) throwError("failed to load defaults!");
-	if(!p2psecGeneratePrivkey(g_p2psec, 1024)) throwError("failed to generate private key!");
+	if(!p2psecLoadDefaults(g_p2psec)) throwError("Failed to load defaults!");
+	if(!p2psecGeneratePrivkey(g_p2psec, 1024)) throwError("Failed to generate private key!");
 	p2psecSetNetname(g_p2psec, initconfig->networkname, strlen(initconfig->networkname));
 	p2psecSetPassword(g_p2psec, initconfig->password, initconfig->password_len);
 	p2psecEnableFragmentation(g_p2psec);
@@ -248,17 +245,21 @@ void init(struct s_initconfig *initconfig) {
 	else {
 		p2psecDisableRelay(g_p2psec);
 	}
-	if(!p2psecStart(g_p2psec)) throwError("failed to start p2p core!");
+	if(!p2psecStart(g_p2psec)) throwError("Failed to start p2p core!");
 	printf("   done.\n");
 	
 	// initialize mac table
-	if(!switchCreate(&g_switchstate)) throwError("failed to setup mactable!\n");
+	if(!switchCreate(&g_switchstate)) throwError("Failed to setup mactable!\n");
 	
 	// initialize ndp table
-	if(!ndp6Create(&g_ndpstate)) throwError("failed to setup ndptable!\n");
+	if(!ndp6Create(&g_ndpstate)) throwError("Failed to setup ndptable!\n");
 	
 	// initialize virtual service
-	if(!virtservCreate(&g_virtserv)) throwError("failed to setup virtserv!\n");
+	if(!virtservCreate(&g_virtserv)) throwError("Failed to setup virtserv!\n");
+
+	// initialize signal handler
+	g_mainloop = 1;
+	signal(SIGINT, sighandler);
 
 	// show client & network id
 	printf("\n");
@@ -272,6 +273,15 @@ void init(struct s_initconfig *initconfig) {
 	dropPrivileges(initconfig->userstr, initconfig->groupstr, initconfig->chrootstr);
 	if(initconfig->enableprivdrop) {
 		dropPrivilegesAuto();
+	}
+	
+	// enable seccomp syscall filtering
+	i = 0;
+	if(initconfig->enableseccomp) {		
+		i = seccompEnable();
+	}
+	if(initconfig->forceseccomp) {
+		if(!i) throwError("Failed to enable seccomp sandboxing!\nTo ignore this, set the \"forceseccomp\" option to \"no\".");
 	}
 
 	// enter main loop

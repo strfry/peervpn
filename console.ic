@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2013 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -97,5 +97,9 @@ static void decodeConsole(char *cmd, int cmdlen) {
 		else {
 			printf("could not get peer address.\n");
 		}
+	}
+	if(pa[0] == 'Q' || pa[0] == 'q') {
+		// QUIT
+		g_mainloop = 0;
 	}
 }

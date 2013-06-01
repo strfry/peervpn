@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2013 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -28,6 +28,7 @@
 #include "libp2psec/p2psec.c"
 #include "platform/io.c"
 #include "platform/ifconfig.c"
+#include "platform/seccomp.c"
 #include "globals.ic"
 #include "console.ic"
 #include "mainloop.ic"
@@ -58,12 +59,14 @@ int main(int argc, char **argv) {
 	strcpy(config.initpeers,"");
 	strcpy(config.engines,"");
 	config.password_len = 0;
-	config.enableeth = 0;
+	config.enableeth = 1;
 	config.enablendpcache = 0;
 	config.enablevirtserv = 0;
 	config.enablerelay = 0;
 	config.enableindirect = 0;
 	config.enableconsole = 0;
+	config.enableseccomp = 1;
+	config.forceseccomp = 0;
 	config.enableprivdrop = 1;
 	config.enableipv4 = 1;
 	config.enableipv6 = 1;
@@ -71,7 +74,7 @@ int main(int argc, char **argv) {
 
 	setbuf(stdout,NULL);
 	printf("PeerVPN v%d.%03d\n", PEERVPN_VERSION_MAJOR, PEERVPN_VERSION_MINOR);
-	printf("(c)2012 Tobias Volk <mail@tobiasvolk.de>\n");
+	printf("(c)2013 Tobias Volk <mail@tobiasvolk.de>\n");
 	printf("\n");
 
 	confok = 0;
