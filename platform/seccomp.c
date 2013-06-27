@@ -31,14 +31,31 @@
 static int seccompEnableDo(scmp_filter_ctx ctx) {
 	if(ctx == NULL) { return 0; }
 	if(seccomp_reset(ctx, SCMP_ACT_KILL) != 0) { return 0; }
+
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(read), 0) != 0) { return 0; }
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(write), 0) != 0) { return 0; }
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(recvfrom), 0) != 0) { return 0; }
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(sendto), 0) != 0) { return 0; }
-	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(poll), 0) != 0) { return 0; }
+
+	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(time), 0) != 0) { return 0; }
+
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(select), 0) != 0) { return 0; }
+#ifdef __NR__newselect
+	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(_newselect), 0) != 0) { return 0; }
+#endif
+
+#ifdef __NR_sigreturn
+	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(sigreturn), 0) != 0) { return 0; }
+#endif
+	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(rt_sigreturn), 0) != 0) { return 0; }
+	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(restart_syscall), 0) != 0) { return 0; }
+
+	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(close), 0) != 0) { return 0; }
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(exit), 0) != 0) { return 0; }
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(exit_group), 0) != 0) { return 0; }
+	
+	if(seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), SCMP_SYS(munmap), 0) != 0) { return 0; }
+
 	if(seccomp_load(ctx) != 0) { return 0; }
 	return 1;
 }
@@ -48,7 +65,7 @@ static int seccompEnableDo(scmp_filter_ctx ctx) {
 static int seccompEnable() {
 	int enabled;
 	scmp_filter_ctx filter;
-	filter = seccomp_init(SCMP_ACT_ALLOW);
+	filter = seccomp_init(SCMP_ACT_KILL);
 	if(filter != NULL) {
 		enabled = seccompEnableDo(filter);
 		seccomp_release(filter);
@@ -71,4 +88,4 @@ static int seccompEnable() {
 #endif
 
 
-#endif // F_SCFILTER_C 
+#endif // F_SECCOMP_C 

@@ -49,7 +49,8 @@ static void decodeConsole(char *cmd, int cmdlen) {
 	char pb[1024];
 	char pc[1024];
 	int i, j;
-	struct s_peeraddr new_peeraddr;
+	struct s_io_addrinfo new_peeraddrs;
+	struct s_peeraddr new_peeraddr;	
 	
 	pa[0] = '\0';
 	pb[0] = '\0';
@@ -61,10 +62,12 @@ static void decodeConsole(char *cmd, int cmdlen) {
 	}
 	if(pa[0] == 'I' || pa[0] == 'i') {
 		// INSERTPEER <address>
-		if(ioGetUDPAddress(&iostate, new_peeraddr.addr, pb, pc)) {
-			if(p2psecConnect(g_p2psec, new_peeraddr.addr)) {
-				utilByteArrayToHexstring(text, 4096, new_peeraddr.addr, peeraddr_SIZE);
-				printf("connecting to %s...\n", text);
+		if(ioResolveName(&new_peeraddrs, pb, pc)) {
+			for(i=0; i<new_peeraddrs.count; i++) {
+				if(p2psecConnect(g_p2psec, new_peeraddrs.item[i].addr)) {
+					utilByteArrayToHexstring(text, 4096, new_peeraddrs.item[i].addr, peeraddr_SIZE);
+					printf("connecting to %s...\n", text);
+				}
 			}
 		}
 		else {

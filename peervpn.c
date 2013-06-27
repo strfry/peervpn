@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
 	config.enablerelay = 0;
 	config.enableindirect = 0;
 	config.enableconsole = 0;
-	config.enableseccomp = 1;
+	config.enableseccomp = 0;
 	config.forceseccomp = 0;
 	config.enableprivdrop = 1;
 	config.enableipv4 = 1;

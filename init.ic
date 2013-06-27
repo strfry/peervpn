@@ -64,7 +64,10 @@ void init(struct s_initconfig *initconfig) {
 	char tapname[256];
 
 	// create data structures
-	ioCreate(&iostate);
+	if(!ioCreate(&iostate, 4096, 4)) {
+		throwError("Could not initialize I/O!\n");
+	}
+	ioSetTimeout(&iostate, 1);
 
 	// load initpeers
 	i=0;j=0;k=0;l=0;m=0;
@@ -101,7 +104,8 @@ void init(struct s_initconfig *initconfig) {
 
 	// enable console
 	if(initconfig->enableconsole) {
-		if(ioOpenSTDIN(&iostate)) {
+		if(!((j = (ioOpenSTDIN(&iostate))) < 0)) {
+			ioSetGroup(&iostate, j, IOGRP_CONSOLE);
 			g_enableconsole = 1;
 		}
 		else {
@@ -113,10 +117,12 @@ void init(struct s_initconfig *initconfig) {
 	}
 	
 	// open udp sockets
-	i = 0;
 	printf("opening sockets...\n");
+	i = 0;
+	ioSetSockmark(&iostate, initconfig->sockmark);
 	if(initconfig->enableipv4) {
-		if(ioOpenUDPv4Socket(&iostate, initconfig->sourceip, initconfig->sourceport, initconfig->sockmark)) {
+		if(!((j = (ioOpenSocketV4(&iostate, initconfig->sourceip, initconfig->sourceport))) < 0)) {
+			ioSetGroup(&iostate, j, IOGRP_SOCKET);
 			printf("   IPv4/UDP: ok.\n");
 			i++;
 		}
@@ -125,7 +131,8 @@ void init(struct s_initconfig *initconfig) {
 		}
 	}
 	if(initconfig->enableipv6) {
-		if(ioOpenUDPv6Socket(&iostate, initconfig->sourceip, initconfig->sourceport, initconfig->sockmark)) {
+		if(!((j = (ioOpenSocketV6(&iostate, initconfig->sourceip, initconfig->sourceport))) < 0)) {
+			ioSetGroup(&iostate, j, IOGRP_SOCKET);
 			printf("   IPv6/UDP: ok.\n");
 			i++;
 		}
@@ -140,12 +147,13 @@ void init(struct s_initconfig *initconfig) {
 	// open tap device
 	if(initconfig->enableeth) {
 		printf("opening TAP device...\n");
-		if(!ioOpenTap(&iostate, tapname, initconfig->tapname)) {
+		if((j = (ioOpenTAP(&iostate, tapname, initconfig->tapname))) < 0) {
 			g_enableeth = 0;
 			printf("   failed.\n");
 			throwError("The TAP device could not be opened! This might be caused by:\n- a missing TAP device driver,\n- a blocked TAP device (try a different name),\n- insufficient privileges (try running as the root/administrator user).");
 		}
 		else {
+			ioSetGroup(&iostate, j, IOGRP_TAP);
 			g_enableeth = 1;
 			printf("   device \"%s\": ok.\n", tapname);
 			if(strlen(initconfig->ifconfig4) > 0) {
@@ -295,7 +303,8 @@ void init(struct s_initconfig *initconfig) {
 	ndp6Destroy(&g_ndpstate);
 	switchDestroy(&g_switchstate);
 	p2psecStop(g_p2psec);
-	ioReset(&iostate);
+	p2psecDestroy(g_p2psec);
+	ioDestroy(&iostate);
 
 	// exit
 	printf("exit.\n");
