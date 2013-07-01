@@ -311,7 +311,12 @@ static void parseConfigFile(int fd, struct s_initconfig *cs) {
 	int linepos = 0;
 	int waiteol = 0;
 	int rc;
-	while((read(fd,&c,1)) > 0) {
+	int readlen;
+	do {
+		readlen = read(fd,&c,1);
+		if(!(readlen > 0)) {
+			c = '\n';
+		}
 		if(c == '\n') {
 			while(linepos > 0) {
 				if(isWhitespaceChar(line[linepos-1])) {
@@ -347,4 +352,5 @@ static void parseConfigFile(int fd, struct s_initconfig *cs) {
 			}
 		}
 	}
+	while(readlen > 0);
 }

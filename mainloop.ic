@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2013 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -170,6 +170,13 @@ static void mainLoop() {
 						else {
 							// ndp cache disabled, send broadcast
 							p2psecSendBroadcastMSG(g_p2psec, msgbuf, len);
+						}
+					}
+					
+					// output packets
+					while((len = (p2psecOutputPacket(g_p2psec, buf, 4096, new_peeraddr.addr))) > 0) {
+						if(!(ioWriteGroup(&iostate, IOGRP_SOCKET, buf, len, &new_peeraddr) > 0)) {
+							logWarning("could not send packet!");
 						}
 					}
 				}

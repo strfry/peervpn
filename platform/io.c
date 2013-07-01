@@ -1047,22 +1047,19 @@ static int ioRead(struct s_io_state *iostate, const int id) {
 
 #elif defined(IO_WINDOWS)
 
-	ret = 0;
-	if(iostate->handle[id].ovlr_used) {
-		switch(iostate->handle[id].type) {
-			case IO_TYPE_SOCKET_V6:
-				ret = ioHelperFinishRecvFrom(&iostate->handle[id]);
-				break;
-			case IO_TYPE_SOCKET_V4:
-				ret = ioHelperFinishRecvFrom(&iostate->handle[id]);
-				break;
-			case IO_TYPE_FILE:
-				ret = ioHelperFinishReadFile(&iostate->handle[id]);
-				break;
-			default:
-				iostate->handle[id].ovlr_used = 0;
-				break;
-		}
+	switch(iostate->handle[id].type) {
+		case IO_TYPE_SOCKET_V6:
+			ret = ioHelperFinishRecvFrom(&iostate->handle[id]);
+			break;
+		case IO_TYPE_SOCKET_V4:
+			ret = ioHelperFinishRecvFrom(&iostate->handle[id]);
+			break;
+		case IO_TYPE_FILE:
+			ret = ioHelperFinishReadFile(&iostate->handle[id]);
+			break;
+		default:
+			ret = 0;
+			break;
 	}
 
 #else

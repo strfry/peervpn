@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2013 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -474,7 +474,7 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 				peerid = peermgtGetNextID(mgt);
 				mgt->outmsgbroadcastcount++;
 			}
-			while((!peermgtIsActiveRemoteID(mgt, peerid)) && (mgt->outmsgbroadcastcount < used));
+			while((!(peermgtIsActiveRemoteID(mgt, peerid) && peermgtGetRemoteFlag(mgt, peerid, peermgt_FLAG_USERDATA))) && (mgt->outmsgbroadcastcount < used));
 			if(mgt->outmsgbroadcastcount >= used) {
 				mgt->outmsgbroadcast = 0;
 				mgt->outmsg.len = 0;
@@ -1042,6 +1042,8 @@ static int peermgtRecvUserdata(struct s_peermgt *mgt, struct s_msg *recvmsg, str
 static int peermgtSendUserdata(struct s_peermgt *mgt, const struct s_msg *sendmsg, const struct s_nodeid *tonodeid, const int topeerid, const int topeerct) {
 	int outpeerid;
 
+	mgt->outmsgbroadcast = 0;
+	mgt->outmsg.len = 0;
 	if(sendmsg != NULL) {
 		if((sendmsg->len > 0) && (sendmsg->len <= peermgt_MSGSIZE_MAX)) {
 			outpeerid = peermgtGetActiveID(mgt, tonodeid, topeerid, topeerct);
@@ -1071,6 +1073,8 @@ static int peermgtSendUserdata(struct s_peermgt *mgt, const struct s_msg *sendms
 
 // Send user data to all connected peers. Return 1 if successful.
 static int peermgtSendBroadcastUserdata(struct s_peermgt *mgt, const struct s_msg *sendmsg) {
+	mgt->outmsgbroadcast = 0;
+	mgt->outmsg.len = 0;
 	if(sendmsg != NULL) {
 		if((sendmsg->len > 0) && (sendmsg->len <= peermgt_MSGSIZE_MAX)) {
 			mgt->outmsg.msg = sendmsg->msg;
