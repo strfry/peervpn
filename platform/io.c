@@ -1346,7 +1346,8 @@ static int ioCreate(struct s_io_state *iostate, const int io_bufsize, const int 
 				iostate->bufsize = io_bufsize;
 				iostate->max = io_max;
 				iostate->count = 0;
-				memset(iostate->handle, 0, sizeof(struct s_io_handle));
+				memset(iostate->mem, 0, (io_bufsize * io_max));
+				memset(iostate->handle, 0, (sizeof(struct s_io_handle) * io_max));
 				ioReset(iostate);
 				return 1;
 			}
