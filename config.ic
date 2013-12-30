@@ -309,6 +309,7 @@ static void parseConfigFile(int fd, struct s_initconfig *cs) {
 	char line[CONFPARSER_LINEBUF_SIZE+1];
 	char c;
 	int linepos = 0;
+	int linectr = 0;
 	int waiteol = 0;
 	int rc;
 	int readlen;
@@ -318,6 +319,7 @@ static void parseConfigFile(int fd, struct s_initconfig *cs) {
 			c = '\n';
 		}
 		if(c == '\n') {
+			linectr++;
 			while(linepos > 0) {
 				if(isWhitespaceChar(line[linepos-1])) {
 					linepos--;
@@ -328,7 +330,10 @@ static void parseConfigFile(int fd, struct s_initconfig *cs) {
 			}
 			line[linepos] = '\0';
 			rc = parseConfigLine(line,linepos,cs);
-			if(rc < 0) throwError("config file parse error!");
+			if(rc < 0) {
+				printf("error: config file parse error at line %d!\n", linectr); 
+				throwError(NULL);
+			}
 			if(rc == 0) break;
 			linepos = 0;
 			waiteol = 0;

@@ -158,7 +158,7 @@ static int dhGenCryptoKeys(struct s_crypto *ctx, const int ctx_count, const stru
 			ret = cryptoSetKeys(ctx, ctx_count, secret, size, nonce, nonce_len);
 		}
 	}
-	BN_clear_free(&bn);
+	BN_clear(&bn);
 	return ret;
 }
 

@@ -19,7 +19,7 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 36
+#define PEERVPN_VERSION_MINOR 37
 
 
 // compile time options & timing parameters

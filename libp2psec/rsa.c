@@ -105,34 +105,29 @@ static int rsaGetFingerprint(unsigned char *buf, const int buf_size, const struc
 
 // Generate RSA public/private key pair
 static int rsaGenerate(struct s_rsa *rsa, const int key_size) {
+	BIGNUM bn;
 	RSA *rsakey;
 	rsa->isvalid = 0;
 	if(key_size > 0) {
-		rsakey = RSA_generate_key(key_size, RSA_F4, NULL, NULL);
+		rsakey = RSA_new();
 		if(rsakey != NULL) {
-			if(RSA_check_key(rsakey) == 1) {
-				if(EVP_PKEY_assign_RSA(rsa->key, rsakey)) {
-					rsa->isvalid = 1;
-					rsa->isprivate = 1;
-					return 1;
+			BN_init(&bn);
+			if(BN_set_word(&bn, RSA_F4)) {
+				if(RSA_generate_key_ex(rsakey, key_size, &bn, NULL)) {
+					if(RSA_check_key(rsakey) == 1) {
+						if(EVP_PKEY_assign_RSA(rsa->key, rsakey)) {
+							rsa->isvalid = 1;
+							rsa->isprivate = 1;
+							return 1;
+						}
+					}
 				}
-				else {
-					RSA_free(rsakey);
-					return 0;
-				}
+				BN_clear(&bn);
 			}
-			else {
-				RSA_free(rsakey);
-				return 0;
-			}
-		}
-		else {
-			return 0;
+			RSA_free(rsakey);
 		}
 	}
-	else {
-		return 0;
-	}
+	return 0;
 }
 
 
@@ -167,18 +162,22 @@ static int rsaLoadPEM(struct s_rsa *rsa, unsigned char *pubkey, const int pubkey
 	rsa->isvalid = 0;
 	if((pubkey_size > 0) && (pubkey != NULL)) {
 		ret = 0;
-		rsakey = RSA_new();
 		biopub = BIO_new_mem_buf(pubkey, pubkey_size);
-		if(PEM_read_bio_RSA_PUBKEY(biopub, &rsakey, NULL, NULL) != NULL) {
-			EVP_PKEY_assign_RSA(rsa->key, rsakey);
-			rsa->isvalid = 1;
-			rsa->isprivate = 0;
-			ret = 1;
+		if(biopub != NULL) {
+			rsakey = RSA_new();
+			if(rsakey != NULL) {
+				if(PEM_read_bio_RSA_PUBKEY(biopub, &rsakey, NULL, NULL) != NULL) {
+					EVP_PKEY_assign_RSA(rsa->key, rsakey);
+					rsa->isvalid = 1;
+					rsa->isprivate = 0;
+					ret = 1;
+				}
+				else {
+					RSA_free(rsakey);
+				}
+			}
+			BIO_free(biopub);
 		}
-		else {
-			RSA_free(rsakey);
-		}
-		BIO_free(biopub);
 		return ret;
 	}
 	else {
@@ -195,23 +194,27 @@ static int rsaLoadPrivatePEM(struct s_rsa *rsa, unsigned char *privkey, const in
 	rsa->isvalid = 0;
 	if((privkey_size > 0) && (privkey != NULL)) {
 		ret = 0;
-		rsakey = RSA_new();
 		biopriv = BIO_new_mem_buf(privkey, privkey_size);
-		if(PEM_read_bio_RSAPrivateKey(biopriv, &rsakey, NULL, NULL) != NULL) {
-			if(RSA_check_key(rsakey) == 1) {
-				EVP_PKEY_assign_RSA(rsa->key, rsakey);
-				rsa->isvalid = 1;
-				rsa->isprivate = 1;
-				ret = 1;
+		if(biopriv != NULL) {
+			rsakey = RSA_new();
+			if(rsakey != NULL) {
+				if(PEM_read_bio_RSAPrivateKey(biopriv, &rsakey, NULL, NULL) != NULL) {
+					if(RSA_check_key(rsakey) == 1) {
+						EVP_PKEY_assign_RSA(rsa->key, rsakey);
+						rsa->isvalid = 1;
+						rsa->isprivate = 1;
+						ret = 1;
+					}
+					else {
+						RSA_free(rsakey);
+					}
+				}
+				else {
+					RSA_free(rsakey);
+				}
 			}
-			else {
-				RSA_free(rsakey);
-			}
+			BIO_free(biopriv);
 		}
-		else {
-			RSA_free(rsakey);
-		}
-		BIO_free(biopriv);
 		return ret;
 	}
 	else {
