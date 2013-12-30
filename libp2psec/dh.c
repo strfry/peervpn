@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2013 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -35,6 +35,7 @@
 // The DH state structure.
 struct s_dh_state {
 	DH *dh;
+	BIGNUM *bn;
 	unsigned char pubkey[dh_MAXSIZE];
 	int pubkey_size;
 };
@@ -102,15 +103,20 @@ static int dhGenKey(struct s_dh_state *dhstate) {
 
 // Create a DH state object.
 static int dhCreate(struct s_dh_state *dhstate) {
-	dhstate->pubkey_size = 0;
-	dhstate->dh = DH_new();
-	if(dhstate->dh != NULL) {
-		if(dhLoadDefaultParams(dhstate)) {
-			if(dhGenKey(dhstate)) {
-				return 1;
+	dhstate->bn = BN_new();
+	if(dhstate->bn != NULL) {
+		BN_zero(dhstate->bn);
+		dhstate->pubkey_size = 0;
+		dhstate->dh = DH_new();
+		if(dhstate->dh != NULL) {
+			if(dhLoadDefaultParams(dhstate)) {
+				if(dhGenKey(dhstate)) {
+					return 1;
+				}
 			}
+			DH_free(dhstate->dh);
 		}
-		DH_free(dhstate->dh);
+		BN_free(dhstate->bn);
 	}
 	return 0;
 }
@@ -119,6 +125,7 @@ static int dhCreate(struct s_dh_state *dhstate) {
 // Destroy a DH state object.
 static void dhDestroy(struct s_dh_state *dhstate) {
 	DH_free(dhstate->dh);
+	BN_free(dhstate->bn);
 	dhstate->pubkey_size = 0;
 }
 
@@ -144,21 +151,20 @@ static int dhGetPubkey(unsigned char *buf, const int buf_size, const struct s_dh
 
 // Generate symmetric keys. Returns 1 if succesful.
 static int dhGenCryptoKeys(struct s_crypto *ctx, const int ctx_count, const struct s_dh_state *dhstate, const unsigned char *peerkey, const int peerkey_len, const unsigned char *nonce, const int nonce_len) {
+	BIGNUM *bn = dhstate->bn;
 	DH *dh = dhstate->dh;
 	int ret = 0;
 	int maxsize = DH_size(dh);
 	unsigned char secret[maxsize];
 	int size;
-	BIGNUM bn;
-	BN_init(&bn);
-	BN_bin2bn(peerkey, peerkey_len, &bn);
-	if(BN_ucmp(&bn, dh->pub_key) != 0) {
-		size = DH_compute_key(secret, &bn, dh);
+	BN_bin2bn(peerkey, peerkey_len, bn);
+	if(BN_ucmp(bn, dh->pub_key) != 0) {
+		size = DH_compute_key(secret, bn, dh);
 		if(size > 0) {
 			ret = cryptoSetKeys(ctx, ctx_count, secret, size, nonce, nonce_len);
 		}
 	}
-	BN_clear(&bn);
+	BN_zero(bn);
 	return ret;
 }
 

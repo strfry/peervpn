@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2013 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -42,6 +42,7 @@ struct s_rsa {
 	int isprivate;
 	EVP_PKEY *key;
 	EVP_MD_CTX *md;
+	BIGNUM *bn;
 };
 
 
@@ -105,15 +106,13 @@ static int rsaGetFingerprint(unsigned char *buf, const int buf_size, const struc
 
 // Generate RSA public/private key pair
 static int rsaGenerate(struct s_rsa *rsa, const int key_size) {
-	BIGNUM bn;
 	RSA *rsakey;
 	rsa->isvalid = 0;
 	if(key_size > 0) {
 		rsakey = RSA_new();
 		if(rsakey != NULL) {
-			BN_init(&bn);
-			if(BN_set_word(&bn, RSA_F4)) {
-				if(RSA_generate_key_ex(rsakey, key_size, &bn, NULL)) {
+			if(BN_set_word(rsa->bn, RSA_F4)) {
+				if(RSA_generate_key_ex(rsakey, key_size, rsa->bn, NULL)) {
 					if(RSA_check_key(rsakey) == 1) {
 						if(EVP_PKEY_assign_RSA(rsa->key, rsakey)) {
 							rsa->isvalid = 1;
@@ -122,7 +121,7 @@ static int rsaGenerate(struct s_rsa *rsa, const int key_size) {
 						}
 					}
 				}
-				BN_clear(&bn);
+				BN_zero(rsa->bn);
 			}
 			RSA_free(rsakey);
 		}
@@ -260,21 +259,21 @@ static void rsaReset(struct s_rsa *rsa) {
 
 // Create a RSA object.
 static int rsaCreate(struct s_rsa *rsa) {
-	rsa->key = EVP_PKEY_new();
-	if(rsa->key != NULL) {
-		rsa->md = EVP_MD_CTX_create();
-		if(rsa->md != NULL) {
-			rsaReset(rsa);
-			return 1;
-		}
-		else {
+	rsa->bn = BN_new();
+	if(rsa->bn != NULL) {
+		BN_zero(rsa->bn);
+		rsa->key = EVP_PKEY_new();
+		if(rsa->key != NULL) {
+			rsa->md = EVP_MD_CTX_create();
+			if(rsa->md != NULL) {
+				rsaReset(rsa);
+				return 1;
+			}
 			EVP_PKEY_free(rsa->key);
-			return 0;
 		}
+		BN_free(rsa->bn);
 	}
-	else {
-		return 0;
-	}
+	return 0;
 }
 
 
@@ -283,6 +282,7 @@ static void rsaDestroy(struct s_rsa *rsa) {
 	rsaReset(rsa);
 	EVP_MD_CTX_destroy(rsa->md);
 	EVP_PKEY_free(rsa->key);
+	BN_free(rsa->bn);
 }
 
 
