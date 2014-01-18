@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2013 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -74,7 +74,7 @@ int main(int argc, char **argv) {
 
 	setbuf(stdout,NULL);
 	printf("PeerVPN v%d.%03d\n", PEERVPN_VERSION_MAJOR, PEERVPN_VERSION_MINOR);
-	printf("(c)2013 Tobias Volk <mail@tobiasvolk.de>\n");
+	printf("(c)2014 Tobias Volk <mail@tobiasvolk.de>\n");
 	printf("\n");
 
 	confok = 0;

@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2013 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -788,6 +788,7 @@ static int peermgtDecodePacketPeerinfo(struct s_peermgt *mgt, const struct s_pac
 	struct s_nodeid nodeid;
 	struct s_peeraddr addr;
 	int peerinfo_count;
+	int peerinfo_max;
 	int localid;
 	int pos;
 	int relayid;
@@ -796,8 +797,9 @@ static int peermgtDecodePacketPeerinfo(struct s_peermgt *mgt, const struct s_pac
 	int i;
 	int64_t r;
 	if(data->pl_length > 4) {
+		peerinfo_max = ((data->pl_length - 4) / peerinfo_size);
 		peerinfo_count = utilReadInt32(data->pl_buf);
-		if(peerinfo_count > 0 && (((peerinfo_count * peerinfo_size) + 4) <= data->pl_length)) {
+		if(peerinfo_count > 0 && peerinfo_count <= peerinfo_max) {
 			if((peermgtGetRemoteFlag(mgt, data->peerid, peermgt_FLAG_RELAY)) && (!peeraddrIsInternal(&mgt->data[data->peerid].remoteaddr))) {
 				// add indirect NodeDB entry
 				relayid = data->peerid;

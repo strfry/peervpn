@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -222,7 +222,7 @@ static void authGenS1(struct s_auth_state *authstate) {
 	memcpy(&authstate->nextmsg[(4 + 2 + 8)], &authstate->remote_sesstoken, 4);
 	memcpy(&authstate->nextmsg[(4 + 2 + 8 + 4)], authstate->local_nonce, auth_NONCESIZE);
 	dhsize = dhGetPubkey(&authstate->nextmsg[(4 + 2 + 8 + 4 + auth_NONCESIZE + 2)], dh_MAXSIZE, authstate->dhstate);
-	if(dhsize > dh_MINSIZE) {
+	if(dhsize > dh_MINSIZE && dhsize <= dh_MAXSIZE) {
 		utilWriteInt16(&authstate->nextmsg[(4 + 2 + 8 + 4 + auth_NONCESIZE)], dhsize);
 		if(cryptoCalculateSHA256(&authstate->nextmsg[(4 + 2)], 8, &authstate->nextmsg[(4 + 2 + 8)], (4 + auth_NONCESIZE + 2 + dhsize))) {
 			authstate->nextmsg_size = (4 + 2 + 8 + 4 + auth_NONCESIZE + 2 + dhsize);
@@ -248,7 +248,7 @@ static int authDecodeS1(struct s_auth_state *authstate, const unsigned char *msg
 		if(msgnum == (authstate->state + 1)) {
 			if(memcmp(authstate->local_sesstoken, &msg[(4 + 2 + 8)], 4) == 0) {
 				dhsize = utilReadInt16(&msg[(4 + 2 + 8 + 4 + auth_NONCESIZE)]);
-				if((dhsize > dh_MINSIZE) && (msg_len >= (4 + 2 + 8 + 4 + auth_NONCESIZE + 2 + dhsize))) {
+				if((dhsize > dh_MINSIZE) && (dhsize <= dh_MAXSIZE) && (msg_len >= (4 + 2 + 8 + 4 + auth_NONCESIZE + 2 + dhsize))) {
 					if(cryptoCalculateSHA256(checksum, 8, &msg[(4 + 2 + 8)], (4 + auth_NONCESIZE + 2 + dhsize))) {
 						if(memcmp(checksum, &msg[(4 + 2)], 8) == 0) {
 							authstate->remote_dhkey_size = dhsize;
@@ -343,7 +343,7 @@ static int authDecodeS2(struct s_auth_state *authstate, const unsigned char *msg
 			decmsg_len = (4 + 2 + cryptoDec(&authstate->crypto_ctx[auth_CRYPTOCTX_IDP], &decmsg[(4 + 2)], (auth_MAXMSGSIZE_S2 - 2 - 4), &msg[(4 + 2)], (msg_len - 2 - 4), auth_IDPHMACSIZE, auth_IDPIVSIZE)); // decrypt IDP layer
 			if(decmsg_len > 10) {
 				nksize = utilReadInt16(&decmsg[(4 + 2)]);
-				if((nksize > nodekey_MINSIZE) && (decmsg_len > (10 + nksize))) {
+				if((nksize > nodekey_MINSIZE) && (nksize <= nodekey_MAXSIZE) && (decmsg_len > (10 + nksize))) {
 					signsize = utilReadInt16(&decmsg[(4 + 4 + nksize)]);
 					if((signsize > 0) && (decmsg_len >= (10 + nksize + signsize + auth_HMACSIZE))) { // check message length
 						if(cryptoHMAC(&authstate->crypto_ctx[auth_CRYPTOCTX_AUTH], hmac, auth_HMACSIZE, &decmsg[(4 + 4)], nksize)) { // generate HMAC tag
