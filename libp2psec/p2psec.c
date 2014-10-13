@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -293,10 +293,15 @@ void p2psecStatus(P2PSEC_CTX *p2psec, char *status_report, const int status_repo
 }
 
 
+void p2psecNodeDBStatus(P2PSEC_CTX *p2psec, char *status_report, const int status_report_len) {
+	nodedbStatus(&p2psec->mgt.nodedb, status_report, status_report_len);
+}
+
+
 int p2psecConnect(P2PSEC_CTX *p2psec, const unsigned char *destination_addr) {
 	struct s_peeraddr addr;
 	memcpy(addr.addr, destination_addr, peeraddr_SIZE);
-	return peermgtConnect(&p2psec->mgt, addr);
+	return peermgtConnect(&p2psec->mgt, &addr);
 }
 
 
@@ -363,6 +368,12 @@ int p2psecOutputPacket(P2PSEC_CTX *p2psec, unsigned char *packet_output, const i
 	else {
 		return 0;
 	}
+}
+
+
+int p2psecUptime(P2PSEC_CTX *p2psec) {
+	int uptime = peermgtUptime(&p2psec->mgt);
+	return uptime;
 }
 
 

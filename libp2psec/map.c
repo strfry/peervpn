@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -74,7 +74,12 @@ static int mapIsValidID(struct s_map *map, const int id) {
 
 // Return a pointer to key[id].
 static void *mapGetKeyByID(struct s_map *map, const int id) {
-	return &map->key[id * mapGetKeySize(map)];
+	if((!(id < 0)) && (map != NULL)) {
+		return &map->key[id * mapGetKeySize(map)];
+	}
+	else {
+		return NULL;
+	}
 }
 
 
@@ -241,15 +246,28 @@ static int mapGetOldKeyID(struct s_map *map) {
 }
 
 
-// Set new value[id].
-static void mapSetValueByID(struct s_map *map, const int id, const void *value) {
-	memcpy(&map->value[id * mapGetValueSize(map)], value, mapGetValueSize(map));
+// Return a pointer to value[id].
+static void *mapGetValueByID(struct s_map *map, const int id) {
+	if((!(id < 0)) && (map != NULL)) {
+		return &map->value[id * mapGetValueSize(map)];
+	}
+	else {
+		return NULL;
+	}
 }
 
 
-// Return a pointer to value[id].
-static void *mapGetValueByID(struct s_map *map, const int id) {
-	return &map->value[id * mapGetValueSize(map)];
+// Set new value[id].
+static void mapSetValueByID(struct s_map *map, const int id, const void *value) {
+	unsigned char *tptr = mapGetValueByID(map, id);
+	if((!(id < 0)) && (map != NULL)) {
+		if(value == NULL) {
+			memset(tptr, 0, mapGetValueSize(map));
+		}
+		else {
+			memcpy(tptr, value, mapGetValueSize(map));
+		}
+	}
 }
 
 
@@ -346,11 +364,11 @@ static int mapAddReturnID(struct s_map *map, const void *key, const void *value)
 			map->right[rootid] = -1;
 		}
 	}
-	
+
 	// copy key/value to data structure
 	memcpy(mapGetKeyByID(map, nodeid), key, mapGetKeySize(map));
-	memcpy(mapGetValueByID(map, nodeid), value, mapGetValueSize(map));
-	
+	mapSetValueByID(map, nodeid, value);
+
 	// update root ID
 	map->rootid = nodeid;
 	
@@ -401,7 +419,8 @@ static int mapSet(struct s_map *map, const void *key, const void *value) {
 
 // Return a pointer to the value of a key that matches the specified prefix.
 static void *mapGetN(struct s_map *map, const void *prefix, const int prefixlen) {
-	int id = mapGetPrefixID(map, prefix, prefixlen);
+	int id;
+	id = mapGetPrefixID(map, prefix, prefixlen);
 	if(id < 0) return NULL;
 	return mapGetValueByID(map, id);
 }
@@ -413,11 +432,63 @@ static void *mapGet(struct s_map *map, const void *key) {
 }
 
 
+// Calculate required memory size for map.
+static int mapMemSize(const int map_size, const int key_size, const int value_size) {
+	const int align_boundary = idsp_ALIGN_BOUNDARY;
+	int memsize;
+	memsize = 0;
+	memsize = memsize + ((((sizeof(struct s_map)) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	memsize = memsize + ((((map_size * key_size) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	memsize = memsize + ((((map_size * value_size) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	memsize = memsize + (((((map_size+1) * sizeof(int)) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	memsize = memsize + (((((map_size+1) * sizeof(int)) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	memsize = memsize + (((idspMemSize(map_size) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	return memsize;
+}
+
+
+// Set up map data structure on preallocated memory.
+static int mapMemInit(struct s_map *map, const int mem_size, const int map_size, const int key_size, const int value_size) {
+	const int align_boundary = idsp_ALIGN_BOUNDARY;
+	const int keymem_offset = ((((sizeof(struct s_map)) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	const int valuemem_offset = keymem_offset + ((((map_size * key_size) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	const int leftmem_offset = valuemem_offset + ((((map_size * value_size) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	const int rightmem_offset = leftmem_offset + (((((map_size+1) * sizeof(int)) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	const int idsp_offset = rightmem_offset + (((((map_size+1) * sizeof(int)) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	const int min_mem_size = idsp_offset + (((idspMemSize(map_size) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	struct s_idsp *idsp_new;
+	unsigned char *map_mem;
+	
+	// check parameters
+	if(!((map_size > 0) && (key_size > 0) && (value_size > 0))) return 0;
+
+	// create data structure
+	map_mem = (unsigned char *)map;
+	if(min_mem_size == mapMemSize(map_size, key_size, value_size) && mem_size >= min_mem_size) {
+		map->key_size = key_size;
+		map->value_size = value_size;
+		map->key = (unsigned char *)(&map_mem[keymem_offset]);
+		map->value = (unsigned char *)(&map_mem[valuemem_offset]);
+		map->left = (int *)(&map_mem[leftmem_offset]);
+		map->right = (int *)(&map_mem[rightmem_offset]);
+		idsp_new = (struct s_idsp *)(&map_mem[idsp_offset]);
+		if(idspMemInit(idsp_new, (min_mem_size - idsp_offset), map_size)) {
+			map->idsp = *idsp_new;
+			mapInit(map);
+			mapDisableReplaceOld(map);
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+
 // Allocate memory for the map.
 static int mapCreate(struct s_map *map, const int map_size, const int key_size, const int value_size) {
 	// check parameters
 	if(!((map_size > 0) && (key_size > 0) && (value_size > 0))) return 0;
-	
+
 	// create map
 	void *keymem = NULL;
 	void *valuemem = NULL;
@@ -436,13 +507,14 @@ static int mapCreate(struct s_map *map, const int map_size, const int key_size, 
 	map->right = rightmem;
 	mapInit(map);
 	mapDisableReplaceOld(map);
-	
+
 	return 1;
 }
 
 
 // Free the memory used by the map.
-static int mapDestroy(struct s_map *map) {	
+static int mapDestroy(struct s_map *map) {
+	// destroy map
 	if(!((map != NULL) && (map->key != NULL) && (map->value != NULL) && (map->left != NULL) && (map->right != NULL))) return 0;
 	idspDestroy(&map->idsp);
 	free(map->right);
@@ -453,6 +525,7 @@ static int mapDestroy(struct s_map *map) {
 	map->left = NULL;
 	map->value = NULL;
 	map->key = NULL;
+
 	return 1;
 }
 

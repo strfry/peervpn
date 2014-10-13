@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2013 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -38,6 +38,7 @@ static int seccompEnableDo(scmp_filter_ctx ctx) {
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(sendto), 0) != 0) { return 0; }
 
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(time), 0) != 0) { return 0; }
+	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(clock_gettime), 0) != 0) { return 0; }
 
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(select), 0) != 0) { return 0; }
 #ifdef __NR__newselect
@@ -53,7 +54,8 @@ static int seccompEnableDo(scmp_filter_ctx ctx) {
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(close), 0) != 0) { return 0; }
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(exit), 0) != 0) { return 0; }
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(exit_group), 0) != 0) { return 0; }
-	
+
+	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(brk), 0) != 0) { return 0; }
 	if(seccomp_rule_add(ctx, SCMP_ACT_ERRNO(ENOSYS), SCMP_SYS(munmap), 0) != 0) { return 0; }
 
 	if(seccomp_load(ctx) != 0) { return 0; }

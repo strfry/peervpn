@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -75,7 +75,7 @@ static int authmgtTestsuiteRun(struct s_authmgt_test *teststate) {
 	
 	printf("sending auth messages...\n");
 	counter = 0;
-	starttime = utilGetTime();
+	starttime = utilGetClock();
 	for(r=0; r<(authmgtTestsuite_NODECOUNT * 6); r++) {
 		for(i=0; i<authmgtTestsuite_NODECOUNT; i++) {
 			if(authmgtGetNextMsg(&teststate->mgt[i], &msg, &target)) {
@@ -103,7 +103,7 @@ static int authmgtTestsuiteRun(struct s_authmgt_test *teststate) {
 			}
 		}
 	}
-	elapsedtime = (utilGetTime() - starttime);
+	elapsedtime = (utilGetClock() - starttime);
 	printf("   %d authentications completed after %d seconds\n", counter, elapsedtime);
 	k = ((authmgtTestsuite_NODECOUNT - 1) * (authmgtTestsuite_NODECOUNT - 2));
 	if(counter != k) {

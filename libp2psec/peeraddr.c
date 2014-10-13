@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -96,12 +96,6 @@ static void peeraddrSetIndirect(struct s_peeraddr *peeraddr, const int relayid, 
 	utilWriteInt32(&peeraddr->addr[12], relayct);
 	utilWriteInt32(&peeraddr->addr[16], peerid);
 	utilWriteInt32(&peeraddr->addr[20], 0);
-}
-
-
-// Construct zero PeerAddr.
-static void peeraddrZero(struct s_peeraddr *peeraddr) {
-	memset(peeraddr->addr, 0, peeraddr_SIZE);
 }
 
 

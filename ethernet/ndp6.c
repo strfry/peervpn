@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -71,7 +71,7 @@ static void ndp6PacketIn(struct s_ndp6_state *ndpstate, const unsigned char *fra
 				memcpy(mapentry.mac, macaddr, ndp6_MAC_SIZE);
 				mapentry.portid = portid;
 				mapentry.portts = portts;
-				mapentry.ents = utilGetTime();
+				mapentry.ents = utilGetClock();
 				mapSet(&ndpstate->ndptable, ipv6addr, &mapentry);
 			}
 		}
@@ -135,7 +135,7 @@ static int ndp6GenAdv(struct s_ndp6_state *ndpstate, const unsigned char *frame,
 			reqipv6addr = &frame[62];
 			mapentry = mapGet(&ndpstate->ndptable, reqipv6addr);
 			if(mapentry != NULL) {
-				if((utilGetTime() - mapentry->ents) < ndp6_TIMEOUT) {
+				if((utilGetClock() - mapentry->ents) < ndp6_TIMEOUT) {
 					// valid entry found
 					resmacaddr = mapentry->mac;
 					*portid = mapentry->portid;
@@ -153,7 +153,7 @@ static int ndp6GenAdv(struct s_ndp6_state *ndpstate, const unsigned char *frame,
 
 // Generate NDP table status report.
 static void ndp6Status(struct s_ndp6_state *ndpstate, char *report, const int report_len) {
-	int tnow = utilGetTime();
+	int tnow = utilGetClock();
 	struct s_map *map = &ndpstate->ndptable;
 	struct s_ndp6_ndptable_entry *mapentry;
 	int pos = 0;

@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -65,7 +65,7 @@ static int switchFrameOut(struct s_switch_state *switchstate, const unsigned cha
 		pos = mapGetKeyID(&switchstate->mactable, macaddr);
 		if(!(pos < 0)) {
 			mapentry = (struct s_switch_mactable_entry *)mapGetValueByID(&switchstate->mactable, pos);
-			if((utilGetTime() - mapentry->ents) < switch_TIMEOUT) {
+			if((utilGetClock() - mapentry->ents) < switch_TIMEOUT) {
 				// valid entry found
 				*portid = mapentry->portid;
 				*portts = mapentry->portts;
@@ -97,7 +97,7 @@ static void switchFrameIn(struct s_switch_state *switchstate, const unsigned cha
 		if((macaddr[0] & 0x01) == 0) { // only insert unicast address into mactable
 			mapentry.portid = portid;
 			mapentry.portts = portts;
-			mapentry.ents = utilGetTime();
+			mapentry.ents = utilGetClock();
 			mapSet(&switchstate->mactable, macaddr, &mapentry);
 		}
 	}
@@ -106,7 +106,7 @@ static void switchFrameIn(struct s_switch_state *switchstate, const unsigned cha
 
 // Generate MAC table status report.
 static void switchStatus(struct s_switch_state *switchstate, char *report, const int report_len) {
-	int tnow = utilGetTime();
+	int tnow = utilGetClock();
 	struct s_map *map = &switchstate->mactable;
 	struct s_switch_mactable_entry *mapentry;
 	int pos = 0;

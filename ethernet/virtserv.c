@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -51,7 +51,7 @@ struct s_virtserv_state {
 // Add address to virtual service
 static int virtservAddAddress(struct s_virtserv_state *virtserv, const unsigned char *ipv6address) {
 	int tnow;
-	tnow = utilGetTime();
+	tnow = utilGetClock();
 	return mapAdd(&virtserv->listenaddrs, ipv6address, &tnow);
 }
 

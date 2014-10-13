@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -24,6 +24,9 @@
 #include <stdlib.h>
 
 
+#define idsp_ALIGN_BOUNDARY 16
+
+
 struct s_idsp {
 	int *idfwd;
 	int *idlist;
@@ -44,9 +47,42 @@ static void idspReset(struct s_idsp *idsp) {
 }
 
 
+static int idspMemSize(const int size) {
+	const int align_boundary = idsp_ALIGN_BOUNDARY;
+	int memsize;
+	memsize = 0;
+	memsize = memsize + ((((sizeof(struct s_idsp)) + (align_boundary - 1)) / align_boundary) * align_boundary); // struct
+	memsize = memsize + ((((sizeof(int) * size) + (align_boundary - 1)) / align_boundary) * align_boundary); // idfwd_mem
+	memsize = memsize + ((((sizeof(int) * size) + (align_boundary - 1)) / align_boundary) * align_boundary); // idlist_mem
+	return memsize;
+}
+
+
+static int idspMemInit(struct s_idsp *idsp, const int mem_size, const int size) {
+	const int align_boundary = idsp_ALIGN_BOUNDARY;
+	const int idfwd_mem_offset = ((((sizeof(struct s_idsp)) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	const int idlist_mem_offset = idfwd_mem_offset + ((((sizeof(int) * size) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	const int min_mem_size = idlist_mem_offset + ((((sizeof(int) * size) + (align_boundary - 1)) / align_boundary) * align_boundary);
+	unsigned char *idsp_mem;
+	idsp_mem = (unsigned char *)idsp;
+	if(min_mem_size == idspMemSize(size)) {
+		if(size > 0 && mem_size >= min_mem_size) {
+			idsp->idfwd = (int *)(&idsp_mem[idfwd_mem_offset]);
+			idsp->idlist = (int *)(&idsp_mem[idlist_mem_offset]);
+			idsp->count = size;
+			idspReset(idsp);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+
 static int idspCreate(struct s_idsp *idsp, const int size) {
-	int *idfwd_mem = NULL;
-	int *idlist_mem = NULL;
+	int *idfwd_mem;
+	int *idlist_mem;
+	idfwd_mem = NULL;
+	idlist_mem = NULL;
 	if(size > 0) {
 		idfwd_mem = malloc(sizeof(int) * size);
 		if(idfwd_mem != NULL) {
@@ -66,8 +102,10 @@ static int idspCreate(struct s_idsp *idsp, const int size) {
 
 
 static int idspNext(struct s_idsp *idsp) {
-	int iter = idsp->iter;
-	int used = idsp->used;
+	int iter;
+	int used;
+	iter = idsp->iter;
+	used = idsp->used;
 	if(used > 0) {
 		if(!(iter < used)) iter = 0;
 		idsp->iter = (iter + 1);

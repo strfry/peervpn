@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -337,7 +337,13 @@ static int mapTestsuiteRWD(const int iterations, const int map_size, const int k
 	memset(&mymaparray[2], 0, sizeof(struct s_map));
 	memset(&mymaparray[1], 0, sizeof(struct s_map));
 	mymap = &mymaparray[0];
+
 	if(!mapCreate(mymap, map_size, key_size, value_size)) return 0;
+	/*
+	j = mapMemSize(map_size, key_size, value_size);
+	mymap = malloc(j);
+	if(!(mapMemInit(mymap, j, map_size, key_size, value_size) > 0)) return 0;
+	*/
 
 	// generate test data
 	mapTestsuiteRWDInit(mymap, states);
@@ -395,6 +401,9 @@ static int mapTestsuiteRWD(const int iterations, const int map_size, const int k
 
 	// destroy data structures
 	if(!mapDestroy(mymap)) return 0;
+	/*
+	free(mymap);
+	*/
 	mymap = NULL;
 	if(!(memcmp(&mymaparray[1], &mymaparray[2], sizeof(struct s_map)) == 0)) return 0;
 	free(mymaparray);

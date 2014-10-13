@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2013 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -19,7 +19,7 @@
 
 // generates warning message
 static void logWarning(char *msg) {
-	if(msg != NULL) printf("warning: %s\n",msg);
+	if(msg != NULL) printf("[%d] warning: %s\n", p2psecUptime(g_p2psec), msg);
 }
 
 
@@ -35,7 +35,7 @@ static void connectInitpeers() {
 		if((j > 0) && (i+j+1 < INITPEER_STORAGE)) {
 			if(k) {
 				port = &g_initpeers[i+1];
-				printf("[%d] resolving %s:%s...\n",utilGetTime(),hostname,port);
+				printf("[%d] resolving %s:%s...\n",p2psecUptime(g_p2psec),hostname,port);
 				if(ioResolveName(&new_peeraddrs, hostname, port)) {
 					for(l=0; l<new_peeraddrs.count; l++) {
 						if(p2psecConnect(g_p2psec,new_peeraddrs.item[l].addr)) {
@@ -87,7 +87,7 @@ static void mainLoop() {
 	struct s_io_addr new_peeraddr;
 
 	while(g_mainloop) {
-		tnow = utilGetTime();
+		tnow = utilGetClock();
 		
 		// read all fds
 		ioReadAll(&iostate);
@@ -196,10 +196,17 @@ static void mainLoop() {
 			laststatus = tnow;
 			connectcount = mapGetKeyCount(&g_p2psec->mgt.map);
 			if(lastconnectcount != connectcount) {
-				printf("[%d] %d peers connected.\n", tnow, (connectcount - 1));
+				printf("[%d] %d peers connected.\n", p2psecUptime(g_p2psec), (connectcount - 1));
 				lastconnectcount = connectcount;
 			}
 		}
+		/*
+		if((tnow - laststatus) > 0) {
+			laststatus = tnow;
+			connectcount = mapGetKeyCount(&g_p2psec->mgt.map);
+			printf("\ruptime: %d, peers connected: %d", p2psecUptime(g_p2psec), (connectcount - 1));
+		}
+		*/
 
 		// connect initpeers
 		if(((tnow - lastinit) > 30) && (!(mapGetKeyCount(&g_p2psec->mgt.map) > 1))) {

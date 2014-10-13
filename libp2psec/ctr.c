@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -52,7 +52,7 @@ static void ctrClear(struct s_ctr_state *ctr) {
 // Initialize sequence number state.
 static void ctrInit(struct s_ctr_state *ctr) {
 	ctrClear(ctr);
-	ctr->lasttime = utilGetTime();
+	ctr->lasttime = utilGetClock();
 	ctr->lastpos = 0;
 }
 
@@ -61,7 +61,7 @@ static void ctrInit(struct s_ctr_state *ctr) {
 static void ctrIncr(struct s_ctr_state *ctr, const int inc) {
 	int diff;
 	int lasttime = ctr->lasttime;
-	int tnow = utilGetTime();
+	int tnow = utilGetClock();
 	
 	diff = (tnow - lasttime);
 	if(diff > ctr_SECS) {

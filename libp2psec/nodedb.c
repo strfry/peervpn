@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -28,148 +28,167 @@
 #include "util.c"
 
 
-// The NodeDB data structure.
-struct s_nodedb_data {
-	struct s_peeraddr lastaddr;
+// The NodeDB addrdata structure.
+struct s_nodedb_addrdata {
 	int lastseen;
+	int lastseen_t;
 	int lastconnect;
+	int lastconnect_t;
 	int lastconntry;
-	int relayid;
-	int relayct;
-	int relaypeerid;
+	int lastconntry_t;
 };
 
 
 // The NodeDB structure.
 struct s_nodedb {
-	struct s_map map;
-	int max_age;
+	struct s_map *addrdb;
+	int num_peeraddrs;
 };
 
 
 // Initialize NodeDB.
 static void nodedbInit(struct s_nodedb *db) {
-	mapInit(&db->map);
-	mapEnableReplaceOld(&db->map);
+	mapInit(db->addrdb);
+	mapEnableReplaceOld(db->addrdb);
 }
 
 
 // Update NodeDB entry.
-static void nodedbUpdate(struct s_nodedb *db, struct s_nodeid *nodeid, struct s_peeraddr *addr, const int update_lastseen, const int update_lastconnect, const int update_lastconntry, const int relayid, const int relayct, const int relaypeerid) {
-	int tnow = utilGetTime();
-	int id;
-	struct s_nodedb_data *dbdata;
-	struct s_nodedb_data newdata;
-	if(nodeid != NULL) {
-		memset(&newdata, 0, sizeof(struct s_nodedb_data));
-		newdata.lastseen = 0;
-		newdata.lastconnect = 0;
-		newdata.lastconntry = 0;
-		newdata.relayid = 0;
-		newdata.relayct = 0;
-		newdata.relaypeerid = 0;
-		id = mapGetKeyID(&db->map, nodeid->id);
-		if(!(id < 0)) {
-			dbdata = mapGetValueByID(&db->map, id);
-			newdata = *dbdata;
+static void nodedbUpdate(struct s_nodedb *db, struct s_nodeid *nodeid, struct s_peeraddr *addr, const int update_lastseen, const int update_lastconnect, const int update_lastconntry) {
+	int tnow = utilGetClock();
+	struct s_map *addrset;
+	struct s_map *newaddrset;
+	struct s_nodedb_addrdata *addrdata;
+	struct s_nodedb_addrdata addrdata_new;
+
+	if(db != NULL && nodeid != NULL && addr != NULL) {
+		addrset = mapGet(db->addrdb, nodeid->id);
+		if(addrset == NULL) {
+			newaddrset = mapGetValueByID(db->addrdb, mapAddReturnID(db->addrdb, nodeid->id, NULL));
+			if(newaddrset != NULL) {
+				if(mapMemInit(newaddrset, mapMemSize(db->num_peeraddrs, peeraddr_SIZE, sizeof(struct s_nodedb_addrdata)), db->num_peeraddrs, peeraddr_SIZE, sizeof(struct s_nodedb_addrdata))) {
+					mapEnableReplaceOld(newaddrset);
+					addrset = newaddrset;
+				}
+			}
 		}
-		if(addr != NULL) {
-			newdata.lastaddr = *addr;
+
+		if(addrset != NULL) {
+			addrdata_new.lastseen = 0;
+			addrdata_new.lastconnect = 0;
+			addrdata_new.lastconntry = 0;
+			addrdata_new.lastseen_t = 0;
+			addrdata_new.lastconnect_t = 0;
+			addrdata_new.lastconntry_t = 0;
+			if((addrdata = mapGet(addrset, addr->addr)) != NULL) {
+				addrdata_new = *addrdata;
+			}
+			if(update_lastseen > 0) {
+				addrdata_new.lastseen = 1;
+				addrdata_new.lastseen_t = tnow;
+			}
+			if(update_lastconnect > 0) {
+				addrdata_new.lastconnect = 1;
+				addrdata_new.lastconnect_t = tnow;
+			}
+			if(update_lastconntry > 0) {
+				addrdata_new.lastconntry = 1;
+				addrdata_new.lastconntry_t = tnow;
+			}
+			mapSet(addrset, addr->addr, &addrdata_new);
 		}
-		if(update_lastseen > 0) {
-			newdata.lastseen = tnow;
-		}
-		if(update_lastconnect > 0) {
-			newdata.lastconnect = tnow;
-		}
-		if(update_lastconntry > 0) {
-			newdata.lastconntry = tnow;
-		}
-		if(relayid > 0) {
-			newdata.relayid = relayid;
-			newdata.relayct = relayct;
-			newdata.relaypeerid = relaypeerid;
-		}
-		else { if(relayid < 0) {
-			newdata.relayid = 0;
-			newdata.relayct = 0;
-			newdata.relaypeerid = 0;
-		} }
-		mapSet(&db->map, nodeid->id, &newdata);
 	}
 }
 
 
-// Returns a node ID that matches the specified criteria.
-static int nodedbNextID(struct s_nodedb *db, const int max_age, const int require_connect, const int require_waitretry) {
-	int i, id, i_max, tnow;
-	struct s_nodedb_data *dbdata;
-	tnow = utilGetTime();
-	i_max = mapGetKeyCount(&db->map);
-	for(i=0; i<i_max; i++) {
-		id = mapGetNextKeyID(&db->map);
-		dbdata = mapGetValueByID(&db->map, id);
-		if((db->max_age < 0) || ((tnow - dbdata->lastseen) < db->max_age)) {
-			if(((max_age < 0) || ((tnow - dbdata->lastseen) < max_age)) && ((!(require_waitretry > 0)) || ((tnow - dbdata->lastconntry) >= ((tnow - dbdata->lastseen) / 2))) && ((!(require_connect > 0)) || ((tnow - dbdata->lastconnect) < max_age))) {
-				return id;
+// Returns a NodeDB ID that matches the specified criteria, with explicit nid/tnow.
+static int nodedbGetDBIDByID(struct s_nodedb *db, const int nid, const int tnow, const int max_age, const int require_connect, const int require_waitretry) {
+	int j, j_max, aid, ret;
+	struct s_nodedb_addrdata *dbdata;
+	struct s_map *addrset;
+	addrset = mapGetValueByID(db->addrdb, nid);
+	j_max = mapGetKeyCount(addrset);
+	for(j=0; j<j_max; j++) {
+		aid = mapGetNextKeyID(addrset);
+		dbdata = mapGetValueByID(addrset, aid);
+		if(dbdata != NULL) {
+			if(
+				((max_age < 0) || ((dbdata->lastseen > 0) && ((tnow - dbdata->lastseen_t) < max_age))) &&
+				((!(require_waitretry > 0)) || (!(dbdata->lastconntry > 0)) || ((tnow - dbdata->lastconntry_t) >= ((tnow - dbdata->lastseen_t) / 2))) &&
+				((!(require_connect > 0)) || ((dbdata->lastconnect > 0) && ((tnow - dbdata->lastconnect_t) < max_age))) &&
+			1) {
+				ret = (nid * db->num_peeraddrs) + aid;
+				return ret;
 			}
-		}
-		else {
-			mapRemove(&db->map, mapGetKeyByID(&db->map, id));
 		}
 	}
 	return -1;
 }
 
 
+// Returns a NodeDB ID that matches the specified criteria.
+static int nodedbGetDBID(struct s_nodedb *db, struct s_nodeid *nodeid, const int max_age, const int require_connect, const int require_waitretry) {
+	int i, i_max, nid, tnow, ret;
+	tnow = utilGetClock();
+	i_max = mapGetKeyCount(db->addrdb);
+	ret = -1;
+	if(nodeid == NULL) { // find DBID for any NodeID
+		i = 0;
+		while((i < i_max) && (ret < 0)) {
+			nid = mapGetNextKeyID(db->addrdb);
+			ret = nodedbGetDBIDByID(db, nid, tnow, max_age, require_connect, require_waitretry);
+			i++;
+		}
+	}
+	else { // find DBID for specified NodeID
+		nid = mapGetKeyID(db->addrdb, nodeid->id);
+		if(!(nid < 0)) {
+			ret = nodedbGetDBIDByID(db, nid, tnow, max_age, require_connect, require_waitretry);
+		}
+	}
+	return ret;
+}
+
+
 // Returns node ID of specified NodeDB ID.
 static struct s_nodeid *nodedbGetNodeID(struct s_nodedb *db, const int db_id) {
-	return mapGetKeyByID(&db->map, db_id);
+	int nid;
+	nid = (db_id / db->num_peeraddrs);
+	return mapGetKeyByID(db->addrdb, nid);
 }
 
 
 // Returns node address of specified NodeDB ID.
-static struct s_peeraddr nodedbGetNodeAddress(struct s_nodedb *db, const int db_id) {
-	struct s_peeraddr addr;
-	struct s_nodedb_data *dbdata = mapGetValueByID(&db->map, db_id);
-	addr = dbdata->lastaddr;
-	return addr;
-}
+static struct s_peeraddr *nodedbGetNodeAddress(struct s_nodedb *db, const int db_id) {
+	struct s_map *addrset;
+	int nid, aid;
 
-
-// Returns indirect node address of specified NodeDB ID. Returns the zero address if no indirect address exists.
-static struct s_peeraddr nodedbGetIndirectNodeAddress(struct s_nodedb *db, const int db_id) {
-	struct s_peeraddr addr;
-	struct s_nodedb_data *dbdata = mapGetValueByID(&db->map, db_id);
-
-	if(dbdata->relayid > 0) {
-		peeraddrSetIndirect(&addr, dbdata->relayid, dbdata->relayct, dbdata->relaypeerid);
-	}
-	else {
-		peeraddrZero(&addr);
+	nid = (db_id / db->num_peeraddrs);
+	aid = (db_id % db->num_peeraddrs);
+	addrset = mapGetValueByID(db->addrdb, nid);
+	if(addrset != NULL) {
+		return mapGetKeyByID(addrset, aid);
 	}
 
-	return addr;
-}
-
-
-// Set maximum age of NodeDB entries in seconds (-1 = no limit).
-static void nodedbSetMaxAge(struct s_nodedb *db, const int max_age) {
-	if(max_age < 0) {
-		db->max_age = -1;
-	}
-	else {
-		db->max_age = max_age;
-	}
+	return NULL;
 }
 
 
 // Create NodeDB.
-static int nodedbCreate(struct s_nodedb *db, const int size) {
-	if(mapCreate(&db->map, size, nodeid_SIZE, sizeof(struct s_nodedb_data))) {
-		nodedbInit(db);
-		nodedbSetMaxAge(db, -1);
-		return 1;
+static int nodedbCreate(struct s_nodedb *db, const int size, const int num_peeraddrs) {
+	const int addrdb_vsize = mapMemSize(num_peeraddrs, peeraddr_SIZE, sizeof(struct s_nodedb_addrdata));
+	const int addrdb_memsize = mapMemSize(size, nodeid_SIZE, addrdb_vsize);
+	struct s_map *addrdb_mem;
+	addrdb_mem = NULL;
+	if(!((addrdb_mem = malloc(addrdb_memsize)) == NULL)) {
+		memset(addrdb_mem, 0, addrdb_memsize);
+		if(mapMemInit(addrdb_mem, addrdb_memsize, size, nodeid_SIZE, addrdb_vsize)) {
+			db->addrdb = addrdb_mem;
+			db->num_peeraddrs = num_peeraddrs;
+			nodedbInit(db);
+			return 1;
+		}
+		free(addrdb_mem);
 	}
 	return 0;
 }
@@ -177,7 +196,90 @@ static int nodedbCreate(struct s_nodedb *db, const int size) {
 
 // Destroy NodeDB.
 static void nodedbDestroy(struct s_nodedb *db) {
-	mapDestroy(&db->map);
+	free(db->addrdb);
+}
+
+
+// Generate NodeDB status report.
+static void nodedbStatus(struct s_nodedb *db, char *report, const int report_len) {
+	int i;
+	int j;
+	int size;
+	int rpsize;
+	int pos;
+	int tnow;
+	unsigned char timediff[4];
+	struct s_map *addrset;
+	struct s_nodedb_addrdata *addrdata;
+
+	tnow = utilGetClock();
+	size = mapGetKeyCount(db->addrdb);
+	rpsize = (95 * (1 + db->num_peeraddrs)) + 2;
+
+	pos = 0;
+	memcpy(&report[pos], "NodeID + Address                                                  LastSeen  LastConn  LastTry ", 94);
+	pos = pos + 94;
+	report[pos++] = '\n';
+
+	i = 0;
+	while(i < size && pos < (report_len - rpsize)) {
+		if(mapIsValidID(db->addrdb, i)) {
+			utilByteArrayToHexstring(&report[pos], ((nodeid_SIZE * 2) + 2), mapGetKeyByID(db->addrdb, i), nodeid_SIZE);
+			pos = pos + (nodeid_SIZE * 2);
+			addrset = mapGetValueByID(db->addrdb, i);
+			memcpy(&report[pos], "                              ", 30);
+			pos = pos + 30;
+			j = 0;
+			while(j < db->num_peeraddrs) {
+				if(mapIsValidID(addrset, j)) {
+					addrdata = mapGetValueByID(addrset, j);
+					report[pos++] = '\n';
+					memcpy(&report[pos], "            ", 12);
+					pos = pos + 12;
+					report[pos++] = '-';
+					report[pos++] = '-';
+					report[pos++] = '>';
+					report[pos++] = ' ';
+					utilByteArrayToHexstring(&report[pos], ((peeraddr_SIZE * 2) + 2), mapGetKeyByID(addrset, j), peeraddr_SIZE);
+					pos = pos + (peeraddr_SIZE * 2);
+					report[pos++] = ' ';
+					report[pos++] = ' ';
+					if(addrdata->lastseen) {
+						utilWriteInt32(timediff, (tnow - addrdata->lastseen_t));
+						utilByteArrayToHexstring(&report[pos], 10, timediff, 4);
+					}
+					else {
+						memcpy(&report[pos], "--------", 8);
+					}
+					pos = pos + 8;
+					report[pos++] = ' ';
+					report[pos++] = ' ';
+					if(addrdata->lastconnect) {
+						utilWriteInt32(timediff, (tnow - addrdata->lastconnect_t));
+						utilByteArrayToHexstring(&report[pos], 10, timediff, 4);
+					}
+					else {
+						memcpy(&report[pos], "--------", 8);
+					}
+					pos = pos + 8;
+					report[pos++] = ' ';
+					report[pos++] = ' ';
+					if(addrdata->lastconntry) {
+						utilWriteInt32(timediff, (tnow - addrdata->lastconntry_t));
+						utilByteArrayToHexstring(&report[pos], 10, timediff, 4);
+					}
+					else {
+						memcpy(&report[pos], "--------", 8);
+					}
+					pos = pos + 8;
+				}
+				j++;
+			}
+			report[pos++] = '\n';
+		}
+		i++;
+	}
+	report[pos++] = '\0';
 }
 
 

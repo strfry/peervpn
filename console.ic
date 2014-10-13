@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2013 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -20,24 +20,40 @@
 
 // print table of active peers
 static void printActivePeerTable() {
-	char str[8192];
-	p2psecStatus(g_p2psec, str, 8192);
+	char str[32768];
+	p2psecStatus(g_p2psec, str, 32768);
+	printf("%s\n", str);
+}
+
+
+// print NodeDB
+static void printNodeDB() {
+	char str[32768];
+	p2psecNodeDBStatus(g_p2psec, str, 32768);
+	printf("%s\n", str);
+}
+
+
+// print RelayDB
+static void printRelayDB() {
+	char str[32768];
+	nodedbStatus(&g_p2psec->mgt.relaydb, str, 32768);
 	printf("%s\n", str);
 }
 
 
 // print table of mac addrs
 static void printMacTable() {
-	char str[8192];
-	switchStatus(&g_switchstate, str, 8192);
+	char str[32768];
+	switchStatus(&g_switchstate, str, 32768);
 	printf("%s\n", str);
 }
 
 
 // print table of ndp cache
 static void printNDPTable() {
-	char str[8192];
-	ndp6Status(&g_ndpstate, str, 8192);
+	char str[32768];
+	ndp6Status(&g_ndpstate, str, 32768);
 	printf("%s\n", str);
 }
 
@@ -59,6 +75,14 @@ static void decodeConsole(char *cmd, int cmdlen) {
 	if(pa[0] == 'A' || pa[0] == 'a') {
 		// ACTIVEPEERTABLE
 		printActivePeerTable();
+	}
+	if(pa[0] == 'D' || pa[0] == 'd') {
+		// DB
+		printNodeDB();
+	}
+	if(pa[0] == 'F' || pa[0] == 'f') {
+		// FDB
+		printRelayDB();
 	}
 	if(pa[0] == 'I' || pa[0] == 'i') {
 		// INSERTPEER <address>

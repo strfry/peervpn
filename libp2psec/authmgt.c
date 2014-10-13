@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2014 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -59,7 +59,7 @@ static int authmgtUsedSlotCount(struct s_authmgt *mgt) {
 // Create new auth session. Returns ID of session if successful.
 static int authmgtNew(struct s_authmgt *mgt, const struct s_peeraddr *peeraddr) {
 	int authstateid = idspNew(&mgt->idsp);
-	int tnow = utilGetTime();
+	int tnow = utilGetClock();
 	if(!(authstateid < 0)) {
 		if(mgt->fastauth) {
 			mgt->lastsend[authstateid] = (tnow - authmgt_RESEND_TIMEOUT - 3);
@@ -67,7 +67,7 @@ static int authmgtNew(struct s_authmgt *mgt, const struct s_peeraddr *peeraddr) 
 		else {
 			mgt->lastsend[authstateid] = tnow;
 		}
-		mgt->lastrecv[authstateid] = utilGetTime();
+		mgt->lastrecv[authstateid] = tnow;
 		mgt->peeraddr[authstateid] = *peeraddr;
 		return authstateid;
 	}
@@ -212,7 +212,7 @@ static void authmgtFinishCompletedPeer(struct s_authmgt *mgt) {
 // Get next auth manager message.
 static int authmgtGetNextMsg(struct s_authmgt *mgt, struct s_msg *out_msg, struct s_peeraddr *target) {
 	int used = idspUsedCount(&mgt->idsp);
-	int tnow = utilGetTime();
+	int tnow = utilGetClock();
 	int authstateid;
 	int i;
 	for(i=0; i<used; i++) {
@@ -266,7 +266,7 @@ static int authmgtFindUnused(struct s_authmgt *mgt) {
 static int authmgtDecodeMsg(struct s_authmgt *mgt, const unsigned char *msg, const int msg_len, const struct s_peeraddr *peeraddr) {
 	int authid;
 	int authstateid;
-	int tnow = utilGetTime();
+	int tnow = utilGetClock();
 	int newsession;
 	int dupid;
 	if(msg_len > 4) {

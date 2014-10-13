@@ -282,7 +282,7 @@ void init(struct s_initconfig *initconfig) {
 	if(initconfig->enableprivdrop) {
 		dropPrivilegesAuto();
 	}
-	
+
 	// enable seccomp syscall filtering
 	i = 0;
 	if(initconfig->enableseccomp) {		
