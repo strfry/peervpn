@@ -49,7 +49,7 @@
 
 // NodeDB settings.
 #define peermgt_NODEDB_NUM_PEERADDRS 8
-#define peermgt_RELAYDB_NUM_PEERADDRS 2
+#define peermgt_RELAYDB_NUM_PEERADDRS 4
 
 
 // States.
@@ -62,8 +62,9 @@
 #define peermgt_RECV_TIMEOUT 100
 #define peermgt_KEEPALIVE_INTERVAL 10
 #define peermgt_PEERINFO_INTERVAL 60
-#define peermgt_NEWCONNECT_INTERVAL 1
-#define peermgt_NEWCONNECT_MAX_AGE 604800
+#define peermgt_NEWCONNECT_MAX_LASTSEEN 604800
+#define peermgt_NEWCONNECT_MIN_LASTCONNTRY 60
+#define peermgt_NEWCONNECT_RELAY_MAX_LASTSEEN 300
 
 
 // Flags.
@@ -108,6 +109,7 @@ struct s_peermgt_data {
 	int state;
 };
 
+
 // The peer manager structure.
 struct s_peermgt {
 	struct s_netid netid;
@@ -140,9 +142,17 @@ struct s_peermgt {
 	int fragoutcount;
 	int fragoutsize;
 	int fragoutpos;
-	int lastconnect;
+	int lastconntry;
 	int tinit;
 };
+
+
+// Return number of connected peers.
+static int peermgtPeerCount(struct s_peermgt *mgt) {
+	int n;
+	n = (mapGetKeyCount(&mgt->map) - 1);
+	return n;
+}
 
 
 // Check if PeerID is valid.
@@ -637,32 +647,45 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 	}
 
 	// connect new peer
-	if((authmgtUsedSlotCount(&mgt->authmgt) < ((authmgtSlotCount(&mgt->authmgt) / 4) * 3)) && ((tnow - mgt->lastconnect) > peermgt_NEWCONNECT_INTERVAL)) {
-		i = nodedbGetDBID(&mgt->nodedb, NULL, peermgt_NEWCONNECT_MAX_AGE, 0, 1);
+	if((tnow - mgt->lastconntry) > 0) { // limit to one per second
+		mgt->lastconntry = tnow;
+		i = -1;
+
+		// find a NodeID and PeerAddr pair in NodeDB
+		if(authmgtUsedSlotCount(&mgt->authmgt) <= (authmgtSlotCount(&mgt->authmgt) / 2)) {
+			i = nodedbGetDBID(&mgt->nodedb, NULL, peermgt_NEWCONNECT_MAX_LASTSEEN, -1, peermgt_NEWCONNECT_MIN_LASTCONNTRY);
+			if((i < 0) && (authmgtUsedSlotCount(&mgt->authmgt) <= (authmgtSlotCount(&mgt->authmgt) / 8))) {
+				i = nodedbGetDBID(&mgt->nodedb, NULL, peermgt_NEWCONNECT_MAX_LASTSEEN, -1, -1);
+				if((i < 0) && (authmgtUsedSlotCount(&mgt->authmgt) <= (authmgtSlotCount(&mgt->authmgt) / 16))) {
+					i = nodedbGetDBID(&mgt->nodedb, NULL, -1, -1, -1);
+				}
+			}
+		}
+
+		// start connection attempt if a node is found
 		if(!(i < 0)) {
 			nodeid = nodedbGetNodeID(&mgt->nodedb, i);
 			peerid = peermgtGetID(mgt, nodeid);
 			peeraddr = nodedbGetNodeAddress(&mgt->nodedb, i);
+			nodedbUpdate(&mgt->nodedb, nodeid, peeraddr, 0, 0, 1);
 			if(peerid < 0) { // node is not connected yet
 				if(peermgtConnect(mgt, peeraddr)) { // try to connect
-					nodedbUpdate(&mgt->nodedb, nodeid, peeraddr, 0, 0, 1);
-					j = nodedbGetDBID(&mgt->relaydb, nodeid, peermgt_NEWCONNECT_MAX_AGE, 0, 1);
+					j = nodedbGetDBID(&mgt->relaydb, nodeid, peermgt_NEWCONNECT_RELAY_MAX_LASTSEEN, -1, peermgt_NEWCONNECT_MIN_LASTCONNTRY);
 					if(!(j < 0)) {
-						if(peermgtConnect(mgt, nodedbGetNodeAddress(&mgt->relaydb, j))) { // try to connect via relay
-							nodedbUpdate(&mgt->relaydb, nodeid, nodedbGetNodeAddress(&mgt->relaydb, j), 0, 0, 1);
-						}
+						peermgtConnect(mgt, nodedbGetNodeAddress(&mgt->relaydb, j)); // try to connect via relay
+						nodedbUpdate(&mgt->relaydb, nodeid, nodedbGetNodeAddress(&mgt->relaydb, j), 0, 0, 1);
 					}
-					mgt->lastconnect = tnow;
 				}
 			}
 			else { // node is already connected
-				if(peeraddrIsInternal(&mgt->data[peerid].remoteaddr)) { // node connection is indirect
-					peermgtSendPingToAddr(mgt, NULL, peerid, mgt->data[peerid].conntime, peeraddr); // try to switch peer to a direct connection
-					nodedbUpdate(&mgt->nodedb, nodeid, peeraddr, 0, 0, 1);
-					mgt->lastconnect = tnow;
+				if(peermgtIsActiveRemoteID(mgt, peerid)) {
+					if(peeraddrIsInternal(&mgt->data[peerid].remoteaddr)) { // node connection is indirect
+						peermgtSendPingToAddr(mgt, NULL, peerid, mgt->data[peerid].conntime, peeraddr); // try to switch peer to a direct connection
+					}
 				}
 			}
 		}
+
 	}
 
 	return 0;
@@ -1101,43 +1124,44 @@ static int peermgtSetPassword(struct s_peermgt *mgt, const char *password, const
 // Initialize peer manager object.
 static int peermgtInit(struct s_peermgt *mgt) {
 	const char *defaultpw = "default";
+	int tnow;
 	int i;
 	int s = mapGetMapSize(&mgt->map);
 	struct s_peeraddr empty_addr;
 	struct s_nodeid *local_nodeid = &mgt->nodekey->nodeid;
 
-	if(utilCheckClock()) {
-		mgt->msgsize = 0;
-		mgt->loopback = 0;
-		mgt->outmsg.len = 0;
-		mgt->outmsgbroadcast = 0;
-		mgt->outmsgbroadcastcount = 0;
-		mgt->rrmsg.len = 0;
-		mgt->rrmsgpeerid = 0;
-		mgt->rrmsgusetargetaddr = 0;
-		mgt->fragoutpeerid = 0;
-		mgt->fragoutcount = 0;
-		mgt->fragoutsize = 0;
-		mgt->fragoutpos = 0;
-		mgt->localflags = 0;
+	mgt->msgsize = 0;
+	mgt->loopback = 0;
+	mgt->outmsg.len = 0;
+	mgt->outmsgbroadcast = 0;
+	mgt->outmsgbroadcastcount = 0;
+	mgt->rrmsg.len = 0;
+	mgt->rrmsgpeerid = 0;
+	mgt->rrmsgusetargetaddr = 0;
+	mgt->fragoutpeerid = 0;
+	mgt->fragoutcount = 0;
+	mgt->fragoutsize = 0;
+	mgt->fragoutpos = 0;
+	mgt->localflags = 0;
 
-		for(i=0; i<s; i++) {
-			mgt->data[i].state = peermgt_STATE_INVALID;
-		}
+	for(i=0; i<s; i++) {
+		mgt->data[i].state = peermgt_STATE_INVALID;
+	}
 
-		memset(empty_addr.addr, 0, peeraddr_SIZE);
-		mapInit(&mgt->map);
-		authmgtReset(&mgt->authmgt);
-		nodedbInit(&mgt->nodedb);
-		nodedbInit(&mgt->relaydb);
+	memset(empty_addr.addr, 0, peeraddr_SIZE);
+	mapInit(&mgt->map);
+	authmgtReset(&mgt->authmgt);
+	nodedbInit(&mgt->nodedb);
+	nodedbInit(&mgt->relaydb);
 
-		if(peermgtNew(mgt, local_nodeid, &empty_addr) == 0) { // ID 0 should always represent local NodeID
-			if(peermgtGetID(mgt, local_nodeid) == 0) {
-				if(peermgtSetNetID(mgt, defaultpw, 7) && peermgtSetPassword(mgt, defaultpw, 7)) {
-					mgt->data[0].state = peermgt_STATE_COMPLETE;
-					mgt->tinit = utilGetClock();
-					return 1;
-				}
+	if(peermgtNew(mgt, local_nodeid, &empty_addr) == 0) { // ID 0 should always represent local NodeID
+		if(peermgtGetID(mgt, local_nodeid) == 0) {
+			if(peermgtSetNetID(mgt, defaultpw, 7) && peermgtSetPassword(mgt, defaultpw, 7)) {
+				mgt->data[0].state = peermgt_STATE_COMPLETE;
+				tnow = utilGetClock();
+				mgt->tinit = tnow;
+				mgt->lastconntry = tnow;
+				return 1;
 			}
 		}
 	}
@@ -1221,7 +1245,6 @@ static void peermgtStatus(struct s_peermgt *mgt, char *report, const int report_
 
 // Create peer manager object.
 static int peermgtCreate(struct s_peermgt *mgt, const int peer_slots, const int auth_slots, struct s_nodekey *local_nodekey, struct s_dh_state *dhstate) {
-	int tnow = utilGetClock();
 	const char *defaultid = "default";
 	struct s_peermgt_data *data_mem;
 	struct s_crypto *ctx_mem;
@@ -1240,7 +1263,6 @@ static int peermgtCreate(struct s_peermgt *mgt, const int peer_slots, const int 
 										mgt->nodekey = local_nodekey;
 										mgt->data = data_mem;
 										mgt->ctx = ctx_mem;
-										mgt->lastconnect = tnow;
 										mgt->rrmsg.msg = mgt->rrmsgbuf;
 										if(peermgtInit(mgt)) {
 											return 1;

@@ -371,6 +371,12 @@ int p2psecOutputPacket(P2PSEC_CTX *p2psec, unsigned char *packet_output, const i
 }
 
 
+int p2psecPeerCount(P2PSEC_CTX *p2psec) {
+	int n = peermgtPeerCount(&p2psec->mgt);
+	return n;
+}
+
+
 int p2psecUptime(P2PSEC_CTX *p2psec) {
 	int uptime = peermgtUptime(&p2psec->mgt);
 	return uptime;

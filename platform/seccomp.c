@@ -38,7 +38,6 @@ static int seccompEnableDo(scmp_filter_ctx ctx) {
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(sendto), 0) != 0) { return 0; }
 
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(time), 0) != 0) { return 0; }
-	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(clock_gettime), 0) != 0) { return 0; }
 
 	if(seccomp_rule_add(ctx, SCMP_ACT_ALLOW, SCMP_SYS(select), 0) != 0) { return 0; }
 #ifdef __NR__newselect

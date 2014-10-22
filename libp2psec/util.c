@@ -179,33 +179,9 @@ static void utilWriteInt64(unsigned char *buf, int64_t i) {
 }
 
 
-// Check monotonic clock
-static int utilCheckClock() {
-#ifdef CLOCK_MONOTONIC
-	struct timespec ts;
-	if(clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
-		return 1;
-	}
-	else {
-		return 0;
-	}
-#else
-	return 1;
-#endif
-}
-
-
-// Get monotonic clock value in seconds
+// Get clock value in seconds
 static int utilGetClock() {
-#ifdef CLOCK_MONOTONIC
-	int clk;
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	clk = ts.tv_sec;
-	return clk;
-#else
 	return time(NULL);
-#endif
 }
 
 

@@ -74,7 +74,7 @@ static void mainLoop() {
 	unsigned char *msgbuf;
 	int lastinit = 0;
 	int laststatus = 0;
-	int lastconnectcount = 0;
+	int lastconnectcount = -1;
 	int connectcount = 0;
 	int do_broadcast = 0;
 	int ndp_peerid = 0;
@@ -194,17 +194,17 @@ static void mainLoop() {
 		// show status
 		if((tnow - laststatus) > 10) {
 			laststatus = tnow;
-			connectcount = mapGetKeyCount(&g_p2psec->mgt.map);
+			connectcount = p2psecPeerCount(g_p2psec);
 			if(lastconnectcount != connectcount) {
-				printf("[%d] %d peers connected.\n", p2psecUptime(g_p2psec), (connectcount - 1));
+				printf("[%d] %d peers connected.\n", p2psecUptime(g_p2psec), connectcount);
 				lastconnectcount = connectcount;
 			}
 		}
 		/*
 		if((tnow - laststatus) > 0) {
 			laststatus = tnow;
-			connectcount = mapGetKeyCount(&g_p2psec->mgt.map);
-			printf("\ruptime: %d, peers connected: %d", p2psecUptime(g_p2psec), (connectcount - 1));
+			connectcount = p2psecPeerCount(g_p2psec);
+			printf("\ruptime: %d, peers connected: %d", p2psecUptime(g_p2psec), connectcount);
 		}
 		*/
 

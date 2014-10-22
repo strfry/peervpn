@@ -102,7 +102,7 @@ static void nodedbUpdate(struct s_nodedb *db, struct s_nodeid *nodeid, struct s_
 
 
 // Returns a NodeDB ID that matches the specified criteria, with explicit nid/tnow.
-static int nodedbGetDBIDByID(struct s_nodedb *db, const int nid, const int tnow, const int max_age, const int require_connect, const int require_waitretry) {
+static int nodedbGetDBIDByID(struct s_nodedb *db, const int nid, const int tnow, const int max_lastseen, const int max_lastconnect, const int min_lastconntry) {
 	int j, j_max, aid, ret;
 	struct s_nodedb_addrdata *dbdata;
 	struct s_map *addrset;
@@ -113,9 +113,19 @@ static int nodedbGetDBIDByID(struct s_nodedb *db, const int nid, const int tnow,
 		dbdata = mapGetValueByID(addrset, aid);
 		if(dbdata != NULL) {
 			if(
-				((max_age < 0) || ((dbdata->lastseen > 0) && ((tnow - dbdata->lastseen_t) < max_age))) &&
-				((!(require_waitretry > 0)) || (!(dbdata->lastconntry > 0)) || ((tnow - dbdata->lastconntry_t) >= ((tnow - dbdata->lastseen_t) / 2))) &&
-				((!(require_connect > 0)) || ((dbdata->lastconnect > 0) && ((tnow - dbdata->lastconnect_t) < max_age))) &&
+				( (max_lastseen < 0) || (
+					(dbdata->lastseen > 0) &&
+					((tnow - dbdata->lastseen_t) < max_lastseen) &&
+				1)) &&
+				( (max_lastconnect < 0) || (
+					(dbdata->lastconnect > 0) &&
+					((tnow - dbdata->lastconnect_t) < max_lastconnect) &&
+				1)) &&
+				( (min_lastconntry < 0) || (!(dbdata->lastconntry > 0)) || (
+					(dbdata->lastseen > 0) &&
+					((tnow - dbdata->lastconntry_t) >= min_lastconntry) &&
+					((tnow - dbdata->lastconntry_t) >= ((tnow - dbdata->lastseen_t) / 2)) &&
+				1)) &&
 			1) {
 				ret = (nid * db->num_peeraddrs) + aid;
 				return ret;
@@ -127,7 +137,7 @@ static int nodedbGetDBIDByID(struct s_nodedb *db, const int nid, const int tnow,
 
 
 // Returns a NodeDB ID that matches the specified criteria.
-static int nodedbGetDBID(struct s_nodedb *db, struct s_nodeid *nodeid, const int max_age, const int require_connect, const int require_waitretry) {
+static int nodedbGetDBID(struct s_nodedb *db, struct s_nodeid *nodeid, const int max_lastseen, const int max_lastconnect, const int min_lastconntry) {
 	int i, i_max, nid, tnow, ret;
 	tnow = utilGetClock();
 	i_max = mapGetKeyCount(db->addrdb);
@@ -136,14 +146,14 @@ static int nodedbGetDBID(struct s_nodedb *db, struct s_nodeid *nodeid, const int
 		i = 0;
 		while((i < i_max) && (ret < 0)) {
 			nid = mapGetNextKeyID(db->addrdb);
-			ret = nodedbGetDBIDByID(db, nid, tnow, max_age, require_connect, require_waitretry);
+			ret = nodedbGetDBIDByID(db, nid, tnow, max_lastseen, max_lastconnect, min_lastconntry);
 			i++;
 		}
 	}
 	else { // find DBID for specified NodeID
 		nid = mapGetKeyID(db->addrdb, nodeid->id);
 		if(!(nid < 0)) {
-			ret = nodedbGetDBIDByID(db, nid, tnow, max_age, require_connect, require_waitretry);
+			ret = nodedbGetDBIDByID(db, nid, tnow, max_lastseen, max_lastconnect, min_lastconntry);
 		}
 	}
 	return ret;
