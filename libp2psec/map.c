@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2014 by Tobias Volk                                     *
+ *   Copyright (C) 2015 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -184,6 +184,12 @@ static int mapGetKeyCount(struct s_map *map) {
 // Return the next ID of a valid key.
 static int mapGetNextKeyID(struct s_map *map) {
 	return idspNext(&map->idsp);
+}
+
+
+// Return the next ID of a valid key, starting from specified ID.
+static int mapGetNextKeyIDN(struct s_map *map, const int start) {
+	return idspNextN(&map->idsp, start);
 }
 
 

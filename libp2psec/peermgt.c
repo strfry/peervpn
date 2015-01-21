@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2014 by Tobias Volk                                     *
+ *   Copyright (C) 2015 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -101,6 +101,7 @@ struct s_peermgt_data {
 	int lastrecv;
 	int lastsend;
 	int lastpeerinfo;
+	int lastpeerinfosendpeerid;
 	struct s_peeraddr remoteaddr;
 	int remoteflags;
 	int remoteid;
@@ -231,6 +232,12 @@ static int peermgtGetNextID(struct s_peermgt *mgt) {
 }
 
 
+// Return the next valid PeerID, starting from specified ID.
+static int peermgtGetNextIDN(struct s_peermgt *mgt, const int start) {
+	return mapGetNextKeyIDN(&mgt->map, start);
+}
+
+
 // Get PeerID of NodeID. Returns -1 if it is not found.
 static int peermgtGetID(struct s_peermgt *mgt, const struct s_nodeid *nodeid) {
 	return mapGetKeyID(&mgt->map, nodeid->id);
@@ -296,6 +303,7 @@ static int peermgtNew(struct s_peermgt *mgt, const struct s_nodeid *nodeid, cons
 		mgt->data[peerid].lastrecv = tnow;
 		mgt->data[peerid].lastsend = tnow;
 		mgt->data[peerid].lastpeerinfo = tnow;
+		mgt->data[peerid].lastpeerinfosendpeerid = peermgtGetNextID(mgt);
 		seqInit(&mgt->data[peerid].seq, cryptoRand64());
 		mgt->data[peerid].remoteflags = 0;
 		return peerid;
@@ -402,7 +410,7 @@ static int peermgtGetRemoteFlag(struct s_peermgt *mgt, const int peerid, const i
 
 
 // Generate peerinfo packet.
-static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermgt *mgt) {
+static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermgt *mgt, const int peerid) {
 	const int peerinfo_size = (packet_PEERID_SIZE + nodeid_SIZE + peeraddr_SIZE);
 	int peerinfo_max = mapGetKeyCount(&mgt->map);
 	int peerinfo_count;
@@ -419,7 +427,8 @@ static void peermgtGenPacketPeerinfo(struct s_packet_data *data, struct s_peermg
 	// generate peerinfo entries
 	peerinfo_count = 0;
 	while((i < peerinfo_max) && (peerinfo_count < peerinfo_limit) && (pos + peerinfo_size < data->pl_buf_size)) {
-		infoid = peermgtGetNextID(mgt);
+		infoid = peermgtGetNextIDN(mgt, mgt->data[peerid].lastpeerinfosendpeerid);
+		mgt->data[peerid].lastpeerinfosendpeerid = infoid;
 		if((infoid > 0) && (mgt->data[infoid].state == peermgt_STATE_COMPLETE) && (!peeraddrIsInternal(&mgt->data[infoid].remoteaddr))) {
 			utilWriteInt32(infocid, infoid);
 			memcpy(&data->pl_buf[pos], infocid, packet_PEERID_SIZE);
@@ -611,7 +620,7 @@ static int peermgtGetNextPacketGen(struct s_peermgt *mgt, unsigned char *pbuf, c
 						data.pl_buf_size = plbuf_size;
 						data.peerid = mgt->data[peerid].remoteid;
 						data.seq = ++mgt->data[peerid].remoteseq;
-						peermgtGenPacketPeerinfo(&data, mgt);
+						peermgtGenPacketPeerinfo(&data, mgt, peerid);
 						len = packetEncode(pbuf, pbuf_size, &data, &mgt->ctx[peerid]);
 						if(len > 0) {
 							mgt->data[peerid].lastsend = tnow;

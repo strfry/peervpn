@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2014 by Tobias Volk                                     *
+ *   Copyright (C) 2015 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -500,11 +500,27 @@ void consoleTestsuiteUnset(struct s_console_args *args) {
 
 
 void consoleTestsuiteIdspNext(struct s_console_args *args) {
+	char s[1024];
 	struct s_console *console = args->arg[0];
 	struct s_map *map = args->arg[1];
 	struct s_idsp *idsp = &map->idsp;
-	int n = idspNext(idsp);
+	int n;
+	n = idspNext(idsp);
+	snprintf(s, 1024, "%d", n);
+	consoleMsg(console, s);
+	consoleNL(console);
+}
+
+
+void consoleTestsuiteIdspNextN(struct s_console_args *args) {
 	char s[1024];
+	struct s_console *console = args->arg[0];
+	struct s_map *map = args->arg[1];
+	char *value = args->arg[2];
+	struct s_idsp *idsp = &map->idsp;
+	int n,m;
+	sscanf(value, "%d", &m);
+	n = idspNextN(idsp, m);
 	snprintf(s, 1024, "%d", n);
 	consoleMsg(console, s);
 	consoleNL(console);
@@ -911,6 +927,7 @@ int consoleTestsuite() {
 	consoleRegisterCommand(&console, "set", &consoleTestsuiteSet, consoleArgs4(&console, &testmap, NULL, NULL));
 	consoleRegisterCommand(&console, "unset", &consoleTestsuiteUnset, consoleArgs3(&console, &testmap, NULL));
 	consoleRegisterCommand(&console, "idspnext", &consoleTestsuiteIdspNext, consoleArgs2(&console, &testmap));
+	consoleRegisterCommand(&console, "idspnextn", &consoleTestsuiteIdspNextN, consoleArgs3(&console, &testmap, NULL));
 	consoleRegisterCommand(&console, "keygen", &consoleTestsuiteKeygen, consoleArgs1(&console));
 	consoleRegisterCommand(&console, "masskeygen", &consoleTestsuiteMassKeygen, consoleArgs2(&console, NULL));
 	consoleRegisterCommand(&console, "authtest", &consoleTestsuiteAuthtest, consoleArgs1(&console));

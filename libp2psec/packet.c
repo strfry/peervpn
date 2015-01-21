@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2015 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -98,7 +98,7 @@ static int packetEncode(unsigned char *pbuf, const int pbuf_size, const struct s
 	int len;
 	
 	// check if enough space is available for the operation
-	if(data->pl_length > data->pl_buf_size) return 0;
+	if(data->pl_length > data->pl_buf_size) { return 0; }
 	
 	// prepare buffer
 	utilWriteInt64(&dec_buf[packet_CRHDR_SEQ_START], data->seq);
@@ -109,7 +109,7 @@ static int packetEncode(unsigned char *pbuf, const int pbuf_size, const struct s
 	
 	// encrypt buffer
 	len = cryptoEnc(ctx, &pbuf[packet_PEERID_SIZE], (pbuf_size - packet_PEERID_SIZE), dec_buf, (packet_CRHDR_SIZE + data->pl_length), packet_HMAC_SIZE, packet_IV_SIZE);
-	if(len < (packet_HMAC_SIZE + packet_IV_SIZE + packet_CRHDR_SIZE)) return 0;
+	if(len < (packet_HMAC_SIZE + packet_IV_SIZE + packet_CRHDR_SIZE)) { return 0; }
 	
 	// write the scrambled peer ID
 	utilWriteInt32((unsigned char *)&ne_peerid, data->peerid);
@@ -126,6 +126,7 @@ static int packetDecode(struct s_packet_data *data, const unsigned char *pbuf, c
 	int len;
 
 	// decrypt packet
+	if(pbuf_size < (packet_PEERID_SIZE + packet_HMAC_SIZE + packet_IV_SIZE)) { return 0; }
 	len = cryptoDec(ctx, dec_buf, pbuf_size, &pbuf[packet_PEERID_SIZE], (pbuf_size - packet_PEERID_SIZE), packet_HMAC_SIZE, packet_IV_SIZE);
 	if(len < packet_CRHDR_SIZE) { return 0; };
 

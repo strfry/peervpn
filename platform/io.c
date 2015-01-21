@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2013 by Tobias Volk                                     *
+ *   Copyright (C) 2015 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -119,6 +119,8 @@ struct s_io_state {
 	int count;
 	int timeout;
 	int sockmark;
+	int nat64clat;
+	unsigned char nat64_prefix[12];
 	int debug;
 };
 
@@ -1173,6 +1175,15 @@ static int ioWrite(struct s_io_state *iostate, const int id, const unsigned char
 					memcpy(&destination_sockaddr_v6->sin6_port, &destination_addr->addr[20], 2);
 					ret = ioHelperSendTo(&iostate->handle[id], write_buf, write_buf_size, (struct sockaddr *)destination_sockaddr_v6, sizeof(struct sockaddr_in6));
 				}
+				else if((iostate->nat64clat > 0) && (memcmp(destination_addr->addr, IO_ADDRTYPE_UDP4, 4) == 0)) {
+					destination_sockaddr_v6 = (struct sockaddr_in6 *)&destination_sockaddr;
+					memset(destination_sockaddr_v6, 0, sizeof(struct sockaddr_in6));
+					destination_sockaddr_v6->sin6_family = AF_INET6;
+					memcpy(destination_sockaddr_v6->sin6_addr.s6_addr, iostate->nat64_prefix, 12);
+					memcpy(&destination_sockaddr_v6->sin6_addr.s6_addr[12], &destination_addr->addr[4], 4);
+					memcpy(&destination_sockaddr_v6->sin6_port, &destination_addr->addr[8], 2);
+					ret = ioHelperSendTo(&iostate->handle[id], write_buf, write_buf_size, (struct sockaddr *)destination_sockaddr_v6, sizeof(struct sockaddr_in6));
+				}
 				else {
 					ret = 0;
 				}
@@ -1264,10 +1275,18 @@ static struct s_io_addr * ioGetAddr(struct s_io_state *iostate, const int id) {
 	switch(iostate->handle[id].type) {
 		case IO_TYPE_SOCKET_V6: // copy v6 address
 			source_sockaddr_v6 = (struct sockaddr_in6 *)source_sockaddr;
-			memcpy(&ioaddr->addr[0], IO_ADDRTYPE_UDP6, 4); // set address type
-			memcpy(&ioaddr->addr[4], source_sockaddr_v6->sin6_addr.s6_addr, 16); // copy source IPv6 address
-			memcpy(&ioaddr->addr[20], &source_sockaddr_v6->sin6_port, 2); // copy source port
-			memcpy(&ioaddr->addr[22], "\x00\x00", 2); // empty bytes
+			if((iostate->nat64clat > 0) && (memcmp(source_sockaddr_v6->sin6_addr.s6_addr, iostate->nat64_prefix, 12) == 0)) {
+				memcpy(&ioaddr->addr[0], IO_ADDRTYPE_UDP4, 4); // set address type
+				memcpy(&ioaddr->addr[4], &source_sockaddr_v6->sin6_addr.s6_addr[12], 4); // copy source IPv4 address, extracted from NAT64 address
+				memcpy(&ioaddr->addr[8], &source_sockaddr_v6->sin6_port, 2); // copy source port
+				memcpy(&ioaddr->addr[10], "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00", 14); // empty bytes
+			}
+			else {
+				memcpy(&ioaddr->addr[0], IO_ADDRTYPE_UDP6, 4); // set address type
+				memcpy(&ioaddr->addr[4], source_sockaddr_v6->sin6_addr.s6_addr, 16); // copy source IPv6 address
+				memcpy(&ioaddr->addr[20], &source_sockaddr_v6->sin6_port, 2); // copy source port
+				memcpy(&ioaddr->addr[22], "\x00\x00", 2); // empty bytes
+			}
 			break;
 		case IO_TYPE_SOCKET_V4: // copy v4 address
 			source_sockaddr_v4 = (struct sockaddr_in *)source_sockaddr;
@@ -1309,6 +1328,17 @@ static void ioSetSockmark(struct s_io_state *iostate, const int io_sockmark) {
 }
 
 
+// Enable/Disable NAT64 CLAT support.
+static void ioSetNat64Clat(struct s_io_state *iostate, const int enable) {
+	if(enable > 0) {
+		iostate->nat64clat = 1;
+	}
+	else {
+		iostate->nat64clat = 0;
+	}
+}
+
+
 // Set IO read timeout (in seconds).
 static void ioSetTimeout(struct s_io_state *iostate, const int io_timeout) {
 	if(io_timeout > 0) {
@@ -1329,6 +1359,8 @@ static void ioReset(struct s_io_state *iostate) {
 	}
 	iostate->timeout = 1;
 	iostate->sockmark = 0;
+	iostate->nat64clat = 0;
+	memcpy(iostate->nat64_prefix, "\x00\x64\xff\x9b\x00\x00\x00\x00\x00\x00\x00\x00", 12);
 	iostate->debug = 0;
 }
 

@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2015 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -36,8 +36,9 @@
 #define crypto_SHA256 1
 
 
-// maximum iv size
+// maximum iv & hmac size
 #define crypto_MAXIVSIZE EVP_MAX_IV_LENGTH
+#define crypto_MAXHMACSIZE EVP_MAX_MD_SIZE
 
 
 // cipher context storage
@@ -257,43 +258,44 @@ static int cryptoSetSessionKeys(struct s_crypto *session_ctx, struct s_crypto *c
 
 // encrypt buffer
 static int cryptoEnc(struct s_crypto *ctx, unsigned char *enc_buf, const int enc_len, const unsigned char *dec_buf, const int dec_len, const int hmac_len, const int iv_len) {
+	if(!((enc_len > 0) && (dec_len > 0) && (dec_len < enc_len) && (hmac_len > 0) && (hmac_len <= crypto_MAXHMACSIZE) && (iv_len > 0) && (iv_len <= crypto_MAXIVSIZE))) { return 0; }
+
 	unsigned char iv[crypto_MAXIVSIZE];
 	unsigned char hmac[hmac_len];
 	const int hdr_len = (hmac_len + iv_len);
 	int cr_len;
 	int len;
-	
+
 	if(enc_len < (hdr_len + crypto_MAXIVSIZE + dec_len)) { return 0; }
-	if(iv_len > crypto_MAXIVSIZE) { return 0; }
-	
+
 	memset(iv, 0, crypto_MAXIVSIZE);
 	cryptoRand(iv, iv_len);
 	memcpy(&enc_buf[hmac_len], iv, iv_len);
-	
+
 	if(!EVP_EncryptInit_ex(&ctx->enc_ctx, NULL, NULL, NULL, iv)) { return 0; }
 	if(!EVP_EncryptUpdate(&ctx->enc_ctx, &enc_buf[(hdr_len)], &len, dec_buf, dec_len)) { return 0; }
 	cr_len = len;
 	if(!EVP_EncryptFinal(&ctx->enc_ctx, &enc_buf[(hdr_len + cr_len)], &len)) { return 0; }
 	cr_len += len;
-	
+
 	if(!cryptoHMAC(ctx, hmac, hmac_len, &enc_buf[hmac_len], (iv_len + cr_len))) { return 0; }
 	memcpy(enc_buf, hmac, hmac_len);
-	
+
 	return (hdr_len + cr_len);
 }
 
 
 // decrypt buffer
 static int cryptoDec(struct s_crypto *ctx, unsigned char *dec_buf, const int dec_len, const unsigned char *enc_buf, const int enc_len, const int hmac_len, const int iv_len) {
+	if(!((enc_len > 0) && (dec_len > 0) && (enc_len < dec_len) && (hmac_len > 0) && (hmac_len <= crypto_MAXHMACSIZE) && (iv_len > 0) && (iv_len <= crypto_MAXIVSIZE))) { return 0; }
+
 	unsigned char iv[crypto_MAXIVSIZE];
 	unsigned char hmac[hmac_len];
 	const int hdr_len = (hmac_len + iv_len);
 	int cr_len;
 	int len;
 
-	if(iv_len > crypto_MAXIVSIZE) { return 0; }
 	if(enc_len < hdr_len) { return 0; }
-	if(dec_len < enc_len) { return 0; }
 
 	if(!cryptoHMAC(ctx, hmac, hmac_len, &enc_buf[hmac_len], (enc_len - hmac_len))) { return 0; }
 	if(memcmp(hmac, enc_buf, hmac_len) != 0) { return 0; }

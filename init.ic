@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2013 by Tobias Volk                                     *
+ *   Copyright (C) 2015 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -119,6 +119,7 @@ void init(struct s_initconfig *initconfig) {
 	// open udp sockets
 	printf("opening sockets...\n");
 	i = 0;
+	ioSetNat64Clat(&iostate, initconfig->enablenat64clat);
 	ioSetSockmark(&iostate, initconfig->sockmark);
 	if(initconfig->enableipv4) {
 		if(!((j = (ioOpenSocketV4(&iostate, initconfig->sourceip, initconfig->sourceport))) < 0)) {

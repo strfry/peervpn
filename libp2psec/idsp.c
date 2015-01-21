@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2014 by Tobias Volk                                     *
+ *   Copyright (C) 2015 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -101,13 +101,53 @@ static int idspCreate(struct s_idsp *idsp, const int size) {
 }
 
 
+static int idspNextN(struct s_idsp *idsp, const int start) {
+	int nextid;
+	int iter;
+	int used;
+	int pos;
+	used = idsp->used;
+	if(used > 0) {
+		if(!(start < 0) && (start < idsp->count)) {
+			pos = start;
+		}
+		else {
+			pos = 0;
+		}
+		iter = idsp->idfwd[pos];
+		if(iter < 0) {
+			iter = 0;
+		}
+		nextid = idsp->idlist[((iter + 1) % used)];
+		return nextid;
+	}
+	return -1;
+}
+
+
 static int idspNext(struct s_idsp *idsp) {
 	int iter;
 	int used;
 	iter = idsp->iter;
 	used = idsp->used;
 	if(used > 0) {
-		if(!(iter < used)) iter = 0;
+		if(!(iter < used)) { iter = 0; }
+		idsp->iter = (iter + 1);
+		return idsp->idlist[iter];
+	}
+	return -1;
+}
+
+
+
+/*
+static int idspNext(struct s_idsp *idsp) {
+	int iter;
+	int used;
+	iter = idsp->iter;
+	used = idsp->used;
+	if(used > 0) {
+		if(!(iter < used)) { iter = 0; }
 		idsp->iter = (iter + 1);
 		return idsp->idlist[iter];
 	}
@@ -115,6 +155,7 @@ static int idspNext(struct s_idsp *idsp) {
 		return -1;
 	}
 }
+*/
 
 
 static int idspNew(struct s_idsp *idsp) {
