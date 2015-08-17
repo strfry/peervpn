@@ -378,6 +378,7 @@ int p2psecPeerCount(P2PSEC_CTX *p2psec) {
 
 
 int p2psecUptime(P2PSEC_CTX *p2psec) {
+	if(p2psec == NULL) { return 0; }
 	int uptime = peermgtUptime(&p2psec->mgt);
 	return uptime;
 }

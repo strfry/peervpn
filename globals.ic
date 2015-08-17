@@ -19,7 +19,7 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 42
+#define PEERVPN_VERSION_MINOR 43
 
 
 // compile time options & timing parameters
@@ -40,7 +40,7 @@
 
 // global variables
 struct s_io_state iostate;
-P2PSEC_CTX *g_p2psec;
+P2PSEC_CTX *g_p2psec = NULL;
 int g_mainloop;
 char g_initpeers[INITPEER_STORAGE+1];
 struct s_switch_state g_switchstate;
