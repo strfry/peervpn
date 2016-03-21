@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2012 by Tobias Volk                                     *
+ *   Copyright (C) 2016 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -30,7 +30,7 @@
 			error = 1;
 		}
 		if(error) {
-			throwError("user/group changing not implemented in windows version!\n");
+			throwError("UID/GID switching not implemented in windows version!\n");
 		}
 	}
 	static void dropPrivilegesAuto() {
@@ -63,7 +63,7 @@ static void dropPrivileges(char *username, char *groupname, char *chrootdir) {
 			swuser = 1;
 		}
 		else {
-			throwError("username not found!");
+			throwError("the user name specified in the configuration was not found on this system!");
 		}
 	}
 	if(strlen(groupname) > 0) {
@@ -71,13 +71,13 @@ static void dropPrivileges(char *username, char *groupname, char *chrootdir) {
 			swgroup = 1;
 		}
 		else {
-			throwError("groupname not found!");
+			throwError("the group name specified in the configuration was not found on this system!");
 		}
 	}
 
 	if(strlen(chrootdir) > 0) if(chroot(chrootdir) < 0) throwError("chroot failed!");
-	if(swgroup) if(setgid(grp->gr_gid) < 0) throwError("could not switch group!");
-	if(swuser) if(setuid(pwd->pw_uid) < 0) throwError("could not switch user!");
+	if(swgroup) if(setgid(grp->gr_gid) < 0) throwError("could not switch GID!");
+	if(swuser) if(setuid(pwd->pw_uid) < 0) throwError("could not switch UID!");
 }
 
 

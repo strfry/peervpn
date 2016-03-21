@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2015 by Tobias Volk                                     *
+ *   Copyright (C) 2016 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -19,7 +19,7 @@
 
 // version information
 #define PEERVPN_VERSION_MAJOR 0
-#define PEERVPN_VERSION_MINOR 43
+#define PEERVPN_VERSION_MINOR 44
 
 
 // compile time options & timing parameters

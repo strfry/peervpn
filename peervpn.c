@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2015 by Tobias Volk                                     *
+ *   Copyright (C) 2016 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
 
 	setbuf(stdout,NULL);
 	printf("PeerVPN v%d.%03d\n", PEERVPN_VERSION_MAJOR, PEERVPN_VERSION_MINOR);
-	printf("(c)2015 Tobias Volk <mail@tobiasvolk.de>\n");
+	printf("(c)2016 Tobias Volk <mail@tobiasvolk.de>\n");
 	printf("\n");
 
 	confok = 0;
@@ -102,13 +102,13 @@ int main(int argc, char **argv) {
 		}
 
 	}
-	
+
 	if(confok > 0) {
 		// start vpn node
 		init(&config);
 	}
 	else {
-		printf("usage: %s <path_to_config_file>\n", argv[0]);
+		printf("usage: %s <configfile>\n", argv[0]);
 	}
 
 	return 0;

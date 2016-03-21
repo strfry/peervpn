@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2015 by Tobias Volk                                     *
+ *   Copyright (C) 2016 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -65,7 +65,7 @@ void init(struct s_initconfig *initconfig) {
 
 	// create data structures
 	if(!ioCreate(&iostate, 4096, 4)) {
-		throwError("Could not initialize I/O!\n");
+		throwError("Could not initialize I/O backend!\n");
 	}
 	ioSetTimeout(&iostate, 1);
 
@@ -266,9 +266,10 @@ void init(struct s_initconfig *initconfig) {
 	// initialize virtual service
 	if(!virtservCreate(&g_virtserv)) throwError("Failed to setup virtserv!\n");
 
-	// initialize signal handler
+	// initialize signal handlers
 	g_mainloop = 1;
 	signal(SIGINT, sighandler);
+	signal(SIGTERM, sighandler);
 
 	// show client & network id
 	printf("\n");

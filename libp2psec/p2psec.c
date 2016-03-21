@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2014 by Tobias Volk                                     *
+ *   Copyright (C) 2016 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -46,16 +46,18 @@ P2PSEC_CTX {
 
 
 int p2psecStart(P2PSEC_CTX *p2psec) {
-	if((!p2psec->started) && (p2psec->key_loaded) && (p2psec->dh_loaded)) {
-		if(peermgtCreate(&p2psec->mgt, p2psec->peer_count, p2psec->auth_count, &p2psec->nk, &p2psec->dh)) {
-			peermgtSetLoopback(&p2psec->mgt, p2psec->loopback_enable);
-			peermgtSetFastauth(&p2psec->mgt, p2psec->fastauth_enable);
-			peermgtSetFragmentation(&p2psec->mgt, p2psec->fragmentation_enable);
-			peermgtSetNetID(&p2psec->mgt, p2psec->netname, p2psec->netname_len);
-			peermgtSetPassword(&p2psec->mgt, p2psec->password, p2psec->password_len);
-			peermgtSetFlags(&p2psec->mgt, p2psec->flags);
-			p2psec->started = 1;
-			return 1;
+	if(cryptoRandInit()) {
+		if((!p2psec->started) && (p2psec->key_loaded) && (p2psec->dh_loaded)) {
+			if(peermgtCreate(&p2psec->mgt, p2psec->peer_count, p2psec->auth_count, &p2psec->nk, &p2psec->dh)) {
+				peermgtSetLoopback(&p2psec->mgt, p2psec->loopback_enable);
+				peermgtSetFastauth(&p2psec->mgt, p2psec->fastauth_enable);
+				peermgtSetFragmentation(&p2psec->mgt, p2psec->fragmentation_enable);
+				peermgtSetNetID(&p2psec->mgt, p2psec->netname, p2psec->netname_len);
+				peermgtSetPassword(&p2psec->mgt, p2psec->password, p2psec->password_len);
+				peermgtSetFlags(&p2psec->mgt, p2psec->flags);
+				p2psec->started = 1;
+				return 1;
+			}
 		}
 	}
 	return 0;

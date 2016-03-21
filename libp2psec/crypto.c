@@ -1,5 +1,5 @@
 /***************************************************************************
- *   Copyright (C) 2015 by Tobias Volk                                     *
+ *   Copyright (C) 2016 by Tobias Volk                                     *
  *   mail@tobiasvolk.de                                                    *
  *                                                                         *
  *   This program is free software: you can redistribute it and/or modify  *
@@ -25,6 +25,10 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 #include <openssl/rand.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <string.h>
 
 
@@ -81,9 +85,59 @@ static struct s_crypto_md cryptoGetEVPMD(const EVP_MD *md) {
 }
 
 
-// generate random number
-static void cryptoRand(unsigned char *buf, const int buf_size) {
-	RAND_pseudo_bytes(buf, buf_size);
+// initialize random number generator
+int cryptoRandFD = -1;
+static int cryptoRandInit() {
+	int fd;
+	unsigned char randbuf[64];
+	if(!(cryptoRandFD < 0)) { return 1; }
+	if(!((fd = open("/dev/urandom", O_RDONLY)) < 0)) { 
+		if(read(fd, randbuf, 64) > 0) {
+			RAND_seed(randbuf, 64);
+			cryptoRandFD = fd;
+			return 1;
+		}
+		close(fd);
+	}
+	if(!((fd = open("/dev/random", O_RDONLY)) < 0)) { 
+		if(read(fd, randbuf, 64) > 0) {
+			RAND_seed(randbuf, 64);
+			cryptoRandFD = fd;
+			return 1;
+		}
+		close(fd);
+	}
+	if(RAND_bytes(randbuf, 64) == 1) {
+		return 1;
+	}
+	return 0;
+}
+
+
+// generate random bytes
+static int cryptoRand(unsigned char *buf, const int buf_size) {
+	int len;
+	unsigned char randbuf[64];
+	len = 0;
+	if(buf_size > 0) {
+		// prefer OpenSSL RNG
+		if(RAND_bytes(buf, buf_size) == 1) {
+			return 1;
+		}
+
+		// fallback to /dev/urandom
+		if(!(cryptoRandFD < 0)) {
+			len = read(cryptoRandFD, randbuf, 64);
+			if(len > 0) {
+				RAND_seed(randbuf, len); // re-seed OpenSSL RNG
+			}
+			len = read(cryptoRandFD, buf, buf_size);
+			if(len == buf_size) {
+				return 1;
+			}
+		}
+	}
+	return 0;
 }
 
 
