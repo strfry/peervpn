@@ -7,6 +7,6 @@ peervpn: peervpn.o
 peervpn.o: peervpn.c
 
 install:
-	install peervpn /usr/local/sbin/peervpn
+	install peervpn ${DESTDIR}/usr/bin/peervpn
 clean:
 	rm -f peervpn peervpn.o
